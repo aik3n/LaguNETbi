@@ -1,8 +1,326 @@
 object Form1: TForm1
-  Left = 350
-  Height = 383
-  Top = 250
-  Width = 649
-  Caption = 'Form1'
+  Left = 200
+  Top = 120
+  Width = 860
+  Height = 640
+  Caption = 'LaguNETbi - Prueba de estetica'
+  ClientHeight = 640
+  ClientWidth = 860
+  Font.Name = 'Segoe UI'
+  Font.Size = 10
+  Position = poScreenCenter
+  BorderStyle = bsSingle
+  BorderIcons = [biSystemMenu, biMinimize]
   LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  OnClose = FormClose
+  object Sidebar: TPanel
+    Left = 0
+    Top = 0
+    Width = 248
+    Height = 640
+    BevelOuter = bvNone
+    Color = 3350804
+    ParentBackground = False
+    Align = alLeft
+    object BrandLabel: TLabel
+      Left = 24
+      Top = 30
+      Width = 400
+      Height = 24
+      Caption = 'LaguNET'
+      Font.Size = 24
+      Font.Color = clWhite
+      ParentFont = False
+      Font.Style = [fsBold]
+    end
+    object TaglineLabel: TLabel
+      Left = 26
+      Top = 72
+      Width = 400
+      Height = 24
+      Caption = 'bi  /  Tu red, a tu manera'
+      Font.Size = 10
+      Font.Color = 13153442
+      ParentFont = False
+    end
+    object ProfilesLabel: TLabel
+      Left = 26
+      Top = 144
+      Width = 400
+      Height = 24
+      Caption = 'MIS PERFILES'
+      Font.Size = 9
+      Font.Color = 13153442
+      ParentFont = False
+    end
+    object ProfileList: TListBox
+      Left = 16
+      Top = 179
+      Width = 216
+      Height = 195
+      BorderStyle = bsNone
+      Color = 3350804
+      Font.Color = clWhite
+      Font.Size = 12
+      ParentFont = False
+      ItemHeight = 44
+      Style = lbOwnerDrawFixed
+      Items.Strings = (
+        '   Oficina'
+        '   Casa'
+        '   Laboratorio'
+      )
+      ItemIndex = 0
+      OnClick = SelectProfile
+      TabOrder = 0
+    end
+    object CountLabel: TLabel
+      Left = 26
+      Top = 405
+      Width = 400
+      Height = 24
+      Caption = '3 perfiles de ejemplo'
+      Font.Size = 10
+      Font.Color = 13153442
+      ParentFont = False
+    end
+    object VersionLabel: TLabel
+      Left = 26
+      Top = 540
+      Width = 400
+      Height = 24
+      Caption = 'LaguNETbi  /  Concepto 01'
+      Font.Size = 9
+      Font.Color = 13153442
+      ParentFont = False
+    end
+  end
+  object Content: TPanel
+    Left = 248
+    Top = 0
+    Width = 612
+    Height = 640
+    BevelOuter = bvNone
+    Color = 16447733
+    ParentBackground = False
+    Align = alClient
+    object Header: TPanel
+      Left = 32
+      Top = 24
+      Width = 540
+      Height = 48
+      BevelOuter = bvNone
+      Color = 16313309
+      ParentBackground = False
+      object PreviewLabel: TLabel
+        Left = 16
+        Top = 15
+        Width = 400
+        Height = 24
+        Caption = 'VISTA PREVIA  /  Datos de ejemplo'
+        Font.Size = 10
+        Font.Color = 9717792
+        ParentFont = False
+      end
+    end
+    object ProfileTitle: TLabel
+      Left = 32
+      Top = 100
+      Width = 400
+      Height = 24
+      Caption = 'Oficina'
+      Font.Size = 26
+      Font.Color = 3350804
+      ParentFont = False
+      Font.Style = [fsBold]
+    end
+    object SubtitleLabel: TLabel
+      Left = 34
+      Top = 147
+      Width = 400
+      Height = 24
+      Caption = 'Configura tu conexion en un solo lugar.'
+      Font.Size = 11
+      Font.Color = 7760478
+      ParentFont = False
+    end
+    object AdapterLabel: TLabel
+      Left = 34
+      Top = 201
+      Width = 400
+      Height = 24
+      Caption = 'ADAPTADOR DE RED'
+      Font.Size = 9
+      Font.Color = 7760478
+      ParentFont = False
+    end
+    object Adapter: TComboBox
+      Left = 32
+      Top = 225
+      Width = 540
+      Height = 34
+      Style = csDropDownList
+      Items.Strings = (
+        'Ethernet  -  Adaptador de ejemplo'
+        'Wi-Fi  -  Adaptador de ejemplo'
+      )
+      ItemIndex = 0
+      Text = 'Ethernet  -  Adaptador de ejemplo'
+      TabOrder = 0
+    end
+    object AutomaticBox: TCheckBox
+      Left = 32
+      Top = 278
+      Width = 540
+      Height = 26
+      Caption = 'Obtener la configuracion automaticamente (DHCP)'
+      OnClick = ToggleAutomatic
+      TabOrder = 1
+    end
+    object AddressLabel: TLabel
+      Left = 34
+      Top = 330
+      Width = 400
+      Height = 24
+      Caption = 'Direccion IP'
+      Font.Size = 10
+      Font.Color = 3350804
+      ParentFont = False
+    end
+    object AddressEdit: TEdit
+      Left = 32
+      Top = 355
+      Width = 228
+      Height = 34
+      Text = '192.168.1.120'
+      Font.Size = 11
+      ParentFont = False
+      TabOrder = 2
+    end
+    object MaskLabel: TLabel
+      Left = 322
+      Top = 330
+      Width = 400
+      Height = 24
+      Caption = 'Mascara de subred'
+      Font.Size = 10
+      Font.Color = 3350804
+      ParentFont = False
+    end
+    object MaskEdit: TEdit
+      Left = 320
+      Top = 355
+      Width = 228
+      Height = 34
+      Text = '255.255.255.0'
+      Font.Size = 11
+      ParentFont = False
+      TabOrder = 3
+    end
+    object GatewayLabel: TLabel
+      Left = 34
+      Top = 413
+      Width = 400
+      Height = 24
+      Caption = 'Puerta de enlace'
+      Font.Size = 10
+      Font.Color = 3350804
+      ParentFont = False
+    end
+    object GatewayEdit: TEdit
+      Left = 32
+      Top = 438
+      Width = 228
+      Height = 34
+      Text = '192.168.1.1'
+      Font.Size = 11
+      ParentFont = False
+      TabOrder = 4
+    end
+    object DnsLabel: TLabel
+      Left = 322
+      Top = 413
+      Width = 400
+      Height = 24
+      Caption = 'Servidor DNS'
+      Font.Size = 10
+      Font.Color = 3350804
+      ParentFont = False
+    end
+    object DnsEdit: TEdit
+      Left = 320
+      Top = 438
+      Width = 228
+      Height = 34
+      Text = '1.1.1.1'
+      Font.Size = 11
+      ParentFont = False
+      TabOrder = 5
+    end
+    object Footer: TPanel
+      Left = 32
+      Top = 511
+      Width = 540
+      Height = 92
+      BevelOuter = bvNone
+      Color = clWhite
+      ParentBackground = False
+      object StatusLabel: TLabel
+        Left = 14
+        Top = 12
+        Width = 400
+        Height = 24
+        Caption = 'Prueba visual. Sin cambios en tu red.'
+        Font.Size = 9
+        Font.Color = 7760478
+        ParentFont = False
+      end
+      object SaveButton: TButton
+        Left = 14
+        Top = 43
+        Width = 172
+        Height = 34
+        Caption = 'Guardar perfil'
+        OnClick = PreviewAction
+        TabOrder = 0
+      end
+      object ApplyButton: TButton
+        Left = 344
+        Top = 43
+        Width = 182
+        Height = 34
+        Caption = 'Aplicar perfil'
+        OnClick = PreviewAction
+        TabOrder = 1
+      end
+    end
+  end
+  object TrayMenu: TPopupMenu
+    Left = 80
+    Top = 584
+    object ShowMenuItem: TMenuItem
+      Caption = 'Mostrar LaguNETbi'
+      Default = True
+      OnClick = ShowFromTray
+    end
+    object HideMenuItem: TMenuItem
+      Caption = 'Ocultar ventana'
+      OnClick = HideToTray
+    end
+    object TraySeparator: TMenuItem
+      Caption = '-'
+    end
+    object ExitMenuItem: TMenuItem
+      Caption = 'Salir'
+      OnClick = ExitFromTray
+    end
+  end
+  object TrayIcon: TTrayIcon
+    Left = 144
+    Top = 584
+    Hint = 'LaguNETbi - Doble clic para abrir'
+    PopUpMenu = TrayMenu
+    OnDblClick = ShowFromTray
+  end
 end
