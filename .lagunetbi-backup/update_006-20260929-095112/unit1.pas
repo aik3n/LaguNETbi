@@ -5,24 +5,9 @@ unit Unit1;
 interface
 
 uses
-  Classes, SysUtils, Types, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls;
+  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus;
 
 type
-  TQuickForm = class(TForm)
-  private
-    FTree: TTreeView;
-    FStatus: TLabel;
-    FProgress: TProgressBar;
-    procedure PopupDeactivate(Sender: TObject);
-    procedure TreeDblClick(Sender: TObject);
-    procedure TreeEditing(Sender: TObject; Node: TTreeNode; var AllowEdit: Boolean);
-    procedure AddDirectory(const ADirectory: String; AParent: TTreeNode);
-  public
-    constructor CreatePopup(AOwner: TComponent);
-    procedure RefreshScripts(const ARootPath: String);
-    procedure ShowNearTray;
-  end;
-
   TForm1 = class(TForm)
     BrandLabel: TLabel;
     TaglineLabel: TLabel;
@@ -55,6 +40,9 @@ type
     Content: TPanel;
     TrayIcon: TTrayIcon;
     TrayMenu: TPopupMenu;
+    ScriptsMenuItem: TMenuItem;
+    ScriptsRefreshItem: TMenuItem;
+    ScriptsSeparator: TMenuItem;
     ShowMenuItem: TMenuItem;
     HideMenuItem: TMenuItem;
     TraySeparator: TMenuItem;
@@ -64,7 +52,10 @@ type
     procedure ShowFromTray(Sender: TObject);
     procedure HideToTray(Sender: TObject);
     procedure ExitFromTray(Sender: TObject);
-    procedure ShowScriptsPopup(Sender: TObject);
+    procedure TrayMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
+    procedure RefreshScriptsMenu(Sender: TObject);
+    procedure ScriptMenuClick(Sender: TObject);
     procedure SelectProfile(Sender: TObject);
     procedure ToggleAutomatic(Sender: TObject);
     procedure ToggleWifi(Sender: TObject);
@@ -74,7 +65,8 @@ type
     FExiting: Boolean;
     FTrayReady: Boolean;
     FScriptsPath: String;
-    FQuickForm: TQuickForm;
+    procedure PopulateScriptsMenu;
+    procedure AddScriptsFromDirectory(const ADirectory: String; AParent: TMenuItem);
   end;
 
 var
@@ -83,140 +75,6 @@ var
 implementation
 
 {$R *.lfm}
-
-constructor TQuickForm.CreatePopup(AOwner: TComponent);
-begin
-  inherited CreateNew(AOwner, 1);
-
-  Caption := 'LaguNET Scripts';
-  Width := 303;
-  Height := 450;
-  BorderStyle := bsNone;
-  Position := poDesigned;
-  ShowInTaskBar := stNever;
-  Color := clWhite;
-  Font.Name := 'Segoe UI';
-  Font.Size := 9;
-  OnDeactivate := @PopupDeactivate;
-
-  FProgress := TProgressBar.Create(Self);
-  FProgress.Parent := Self;
-  FProgress.Align := alBottom;
-  FProgress.Height := 5;
-  FProgress.Min := 0;
-  FProgress.Max := 17;
-  FProgress.Position := 0;
-  FProgress.Visible := False;
-
-  FStatus := TLabel.Create(Self);
-  FStatus.Parent := Self;
-  FStatus.Align := alBottom;
-  FStatus.Height := 25;
-  FStatus.Alignment := taCenter;
-  FStatus.Layout := tlCenter;
-  FStatus.Caption := '';
-  FStatus.Color := clWhite;
-  FStatus.ParentColor := False;
-
-  FTree := TTreeView.Create(Self);
-  FTree.Parent := Self;
-  FTree.Align := alClient;
-  FTree.BorderStyle := bsNone;
-  FTree.Color := clWhite;
-  FTree.ReadOnly := True;
-  FTree.Font.Name := 'Verdana';
-  FTree.Font.Size := 12;
-  FTree.Indent := 20;
-  FTree.OnEditing := @TreeEditing;
-  FTree.OnDblClick := @TreeDblClick;
-end;
-
-procedure TQuickForm.PopupDeactivate(Sender: TObject);
-begin
-  Hide;
-end;
-
-procedure TQuickForm.AddDirectory(const ADirectory: String; AParent: TTreeNode);
-var
-  SR: TSearchRec;
-  Node: TTreeNode;
-  FullName: String;
-begin
-  if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*', faAnyFile, SR) <> 0 then
-    Exit;
-
-  try
-    repeat
-      if (SR.Name = '.') or (SR.Name = '..') then
-        Continue;
-
-      FullName := IncludeTrailingPathDelimiter(ADirectory) + SR.Name;
-
-      if (SR.Attr and faDirectory) <> 0 then
-      begin
-        Node := FTree.Items.AddChild(AParent, SR.Name);
-        AddDirectory(FullName, Node);
-      end
-      else if SameText(ExtractFileExt(SR.Name), '.bat') then
-        FTree.Items.AddChild(AParent, SR.Name);
-    until FindNext(SR) <> 0;
-  finally
-    FindClose(SR);
-  end;
-end;
-
-procedure TQuickForm.RefreshScripts(const ARootPath: String);
-var
-  RootNode: TTreeNode;
-begin
-  FTree.Items.BeginUpdate;
-  try
-    FTree.Items.Clear;
-    RootNode := FTree.Items.Add(nil, 'scripts');
-    AddDirectory(ARootPath, RootNode);
-
-    if RootNode.Count = 0 then
-      FTree.Items.AddChild(RootNode, '(sin scripts .bat)');
-
-    RootNode.Expand(True);
-  finally
-    FTree.Items.EndUpdate;
-  end;
-
-  FStatus.Caption := '';
-  FProgress.Visible := False;
-end;
-
-procedure TQuickForm.TreeEditing(Sender: TObject; Node: TTreeNode;
-  var AllowEdit: Boolean);
-begin
-  AllowEdit := False;
-end;
-
-procedure TQuickForm.TreeDblClick(Sender: TObject);
-begin
-  if not Assigned(FTree.Selected) then
-    Exit;
-
-  if SameText(ExtractFileExt(FTree.Selected.Text), '.bat') then
-  begin
-    FStatus.Caption := 'Seleccionado: ' + FTree.Selected.Text;
-    FStatus.Visible := True;
-  end;
-end;
-
-procedure TQuickForm.ShowNearTray;
-var
-  R: TRect;
-begin
-  R := Screen.WorkAreaRect;
-  Left := R.Right - Width;
-  Top := R.Bottom - Height;
-
-  Show;
-  BringToFront;
-  FTree.SetFocus;
-end;
 
 procedure TForm1.FormCreate(Sender: TObject);
 begin
@@ -230,9 +88,7 @@ begin
 
   FScriptsPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'scripts';
   ForceDirectories(FScriptsPath);
-
-  FQuickForm := TQuickForm.CreatePopup(Self);
-  FQuickForm.RefreshScripts(FScriptsPath);
+  PopulateScriptsMenu;
 end;
 
 procedure TForm1.FormClose(Sender: TObject; var CloseAction: TCloseAction);
@@ -264,13 +120,84 @@ begin
   Close;
 end;
 
-procedure TForm1.ShowScriptsPopup(Sender: TObject);
+procedure TForm1.TrayMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
 begin
-  if not Assigned(FQuickForm) then
-    Exit;
+  if Button = mbRight then
+    TrayMenu.PopUp(X, Y);
+end;
 
-  FQuickForm.RefreshScripts(FScriptsPath);
-  FQuickForm.ShowNearTray;
+procedure TForm1.AddScriptsFromDirectory(const ADirectory: String; AParent: TMenuItem);
+var
+  SR: TSearchRec;
+  Item: TMenuItem;
+  FullName: String;
+begin
+  if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*', faAnyFile, SR) = 0 then
+  try
+    repeat
+      if (SR.Name = '.') or (SR.Name = '..') then
+        Continue;
+
+      FullName := IncludeTrailingPathDelimiter(ADirectory) + SR.Name;
+
+      if (SR.Attr and faDirectory) <> 0 then
+      begin
+        Item := TMenuItem.Create(TrayMenu);
+        Item.Caption := SR.Name;
+        AParent.Add(Item);
+        AddScriptsFromDirectory(FullName, Item);
+        if Item.Count = 0 then
+          Item.Enabled := False;
+      end
+      else if SameText(ExtractFileExt(SR.Name), '.bat') then
+      begin
+        Item := TMenuItem.Create(TrayMenu);
+        Item.Caption := ChangeFileExt(SR.Name, '');
+        Item.Hint := FullName;
+        Item.OnClick := @ScriptMenuClick;
+        AParent.Add(Item);
+      end;
+    until FindNext(SR) <> 0;
+  finally
+    FindClose(SR);
+  end;
+end;
+
+procedure TForm1.PopulateScriptsMenu;
+var
+  I: Integer;
+  EmptyItem: TMenuItem;
+begin
+  for I := ScriptsMenuItem.Count - 1 downto 0 do
+    ScriptsMenuItem.Delete(I);
+
+  AddScriptsFromDirectory(FScriptsPath, ScriptsMenuItem);
+
+  if ScriptsMenuItem.Count = 0 then
+  begin
+    EmptyItem := TMenuItem.Create(TrayMenu);
+    EmptyItem.Caption := '(sin scripts .bat)';
+    EmptyItem.Enabled := False;
+    ScriptsMenuItem.Add(EmptyItem);
+  end;
+end;
+
+procedure TForm1.RefreshScriptsMenu(Sender: TObject);
+begin
+  PopulateScriptsMenu;
+  StatusLabel.Caption := 'Menu de scripts actualizado.';
+end;
+
+procedure TForm1.ScriptMenuClick(Sender: TObject);
+var
+  Item: TMenuItem;
+begin
+  if not (Sender is TMenuItem) then Exit;
+
+  Item := TMenuItem(Sender);
+  StatusLabel.Caption := 'Script seleccionado: ' + ExtractFileName(Item.Hint);
+  ShowFromTray(nil);
 end;
 
 procedure TForm1.SelectProfile(Sender: TObject);

@@ -15,7 +15,6 @@ type
     FProgress: TProgressBar;
     procedure PopupDeactivate(Sender: TObject);
     procedure TreeDblClick(Sender: TObject);
-    procedure TreeEditing(Sender: TObject; Node: TTreeNode; var AllowEdit: Boolean);
     procedure AddDirectory(const ADirectory: String; AParent: TTreeNode);
   public
     constructor CreatePopup(AOwner: TComponent);
@@ -123,11 +122,9 @@ begin
   FTree.Align := alClient;
   FTree.BorderStyle := bsNone;
   FTree.Color := clWhite;
-  FTree.ReadOnly := True;
   FTree.Font.Name := 'Verdana';
   FTree.Font.Size := 12;
   FTree.Indent := 20;
-  FTree.OnEditing := @TreeEditing;
   FTree.OnDblClick := @TreeDblClick;
 end;
 
@@ -185,12 +182,6 @@ begin
 
   FStatus.Caption := '';
   FProgress.Visible := False;
-end;
-
-procedure TQuickForm.TreeEditing(Sender: TObject; Node: TTreeNode;
-  var AllowEdit: Boolean);
-begin
-  AllowEdit := False;
 end;
 
 procedure TQuickForm.TreeDblClick(Sender: TObject);

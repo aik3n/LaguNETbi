@@ -3,7 +3,7 @@ object Form1: TForm1
   Top = 90
   Width = 900
   Height = 720
-  Caption = 'LaguNET bi'
+  Caption = 'LaguNET bi - TEST UPDATE 003'
   ClientHeight = 720
   ClientWidth = 900
   Font.Name = 'Segoe UI'
@@ -28,7 +28,7 @@ object Form1: TForm1
       Top = 30
       Width = 400
       Height = 24
-      Caption = 'LaguNET'
+      Caption = 'LaguNET TEST 003'
       Font.Size = 24
       Font.Color = clWhite
       ParentFont = False
@@ -90,7 +90,7 @@ object Form1: TForm1
       Top = 620
       Width = 400
       Height = 24
-      Caption = 'LaguNET bi  /  UI 001'
+      Caption = 'UPDATE 003 / CAMBIO VISIBLE'
       Font.Size = 9
       Font.Color = 13153442
       ParentFont = False
@@ -140,7 +140,7 @@ object Form1: TForm1
       Top = 128
       Width = 500
       Height = 24
-      Caption = 'La misma funcionalidad basica de LaguNET.'
+      Caption = '*** UPDATE 003 APLICADO ***'
       Font.Size = 10
       Font.Color = 7760478
       ParentFont = False
@@ -308,7 +308,7 @@ object Form1: TForm1
         Top = 52
         Width = 220
         Height = 42
-        Caption = 'Guardar'
+        Caption = 'GUARDAR TEST 003'
         OnClick = PreviewAction
         TabOrder = 0
       end
@@ -317,7 +317,7 @@ object Form1: TForm1
         Top = 52
         Width = 220
         Height = 42
-        Caption = 'Establecer'
+        Caption = 'ESTABLECER TEST 003'
         OnClick = PreviewAction
         TabOrder = 1
       end
@@ -327,7 +327,7 @@ object Form1: TForm1
     Left = 80
     Top = 664
     object ShowMenuItem: TMenuItem
-      Caption = 'Abrir app'
+      Caption = 'LaguNET Config'
       Default = True
       OnClick = ShowFromTray
     end
@@ -346,9 +346,8 @@ object Form1: TForm1
   object TrayIcon: TTrayIcon
     Left = 144
     Top = 664
-    Hint = 'LaguNET bi'
-    PopUpMenu = TrayMenu
-    OnClick = ShowScriptsPopup
-    OnDblClick = ShowScriptsPopup
+    Hint = 'LaguNET bi - Doble clic para abrir'
+    OnDblClick = ShowFromTray
+    OnMouseUp = TrayMouseUp
   end
 end

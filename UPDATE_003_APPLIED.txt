@@ -1,0 +1,3 @@
+Si ves este archivo, update_003 ha modificado esta carpeta.
+La ventana deberia mostrar: LaguNET bi - TEST UPDATE 003
+Los botones deberian decir GUARDAR TEST 003 y ESTABLECER TEST 003.

@@ -15,7 +15,6 @@ type
     FProgress: TProgressBar;
     procedure PopupDeactivate(Sender: TObject);
     procedure TreeDblClick(Sender: TObject);
-    procedure TreeEditing(Sender: TObject; Node: TTreeNode; var AllowEdit: Boolean);
     procedure AddDirectory(const ADirectory: String; AParent: TTreeNode);
   public
     constructor CreatePopup(AOwner: TComponent);
@@ -64,7 +63,8 @@ type
     procedure ShowFromTray(Sender: TObject);
     procedure HideToTray(Sender: TObject);
     procedure ExitFromTray(Sender: TObject);
-    procedure ShowScriptsPopup(Sender: TObject);
+    procedure TrayMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
     procedure SelectProfile(Sender: TObject);
     procedure ToggleAutomatic(Sender: TObject);
     procedure ToggleWifi(Sender: TObject);
@@ -123,11 +123,9 @@ begin
   FTree.Align := alClient;
   FTree.BorderStyle := bsNone;
   FTree.Color := clWhite;
-  FTree.ReadOnly := True;
   FTree.Font.Name := 'Verdana';
   FTree.Font.Size := 12;
   FTree.Indent := 20;
-  FTree.OnEditing := @TreeEditing;
   FTree.OnDblClick := @TreeDblClick;
 end;
 
@@ -185,12 +183,6 @@ begin
 
   FStatus.Caption := '';
   FProgress.Visible := False;
-end;
-
-procedure TQuickForm.TreeEditing(Sender: TObject; Node: TTreeNode;
-  var AllowEdit: Boolean);
-begin
-  AllowEdit := False;
 end;
 
 procedure TQuickForm.TreeDblClick(Sender: TObject);
@@ -264,13 +256,19 @@ begin
   Close;
 end;
 
-procedure TForm1.ShowScriptsPopup(Sender: TObject);
+procedure TForm1.TrayMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
 begin
-  if not Assigned(FQuickForm) then
-    Exit;
-
-  FQuickForm.RefreshScripts(FScriptsPath);
-  FQuickForm.ShowNearTray;
+  if Button = mbLeft then
+  begin
+    if Assigned(FQuickForm) then
+    begin
+      FQuickForm.RefreshScripts(FScriptsPath);
+      FQuickForm.ShowNearTray;
+    end;
+  end
+  else if Button = mbRight then
+    TrayMenu.PopUp(X, Y);
 end;
 
 procedure TForm1.SelectProfile(Sender: TObject);

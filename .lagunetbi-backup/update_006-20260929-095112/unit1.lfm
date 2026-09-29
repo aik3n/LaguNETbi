@@ -326,8 +326,18 @@ object Form1: TForm1
   object TrayMenu: TPopupMenu
     Left = 80
     Top = 664
+    object ScriptsMenuItem: TMenuItem
+      Caption = 'Scripts'
+    end
+    object ScriptsRefreshItem: TMenuItem
+      Caption = 'Actualizar scripts'
+      OnClick = RefreshScriptsMenu
+    end
+    object ScriptsSeparator: TMenuItem
+      Caption = '-'
+    end
     object ShowMenuItem: TMenuItem
-      Caption = 'Abrir app'
+      Caption = 'LaguNET Config'
       Default = True
       OnClick = ShowFromTray
     end
@@ -346,9 +356,8 @@ object Form1: TForm1
   object TrayIcon: TTrayIcon
     Left = 144
     Top = 664
-    Hint = 'LaguNET bi'
-    PopUpMenu = TrayMenu
-    OnClick = ShowScriptsPopup
-    OnDblClick = ShowScriptsPopup
+    Hint = 'LaguNET bi - Doble clic para abrir'
+    OnDblClick = ShowFromTray
+    OnMouseUp = TrayMouseUp
   end
 end

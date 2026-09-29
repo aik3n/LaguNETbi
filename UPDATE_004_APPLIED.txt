@@ -1,0 +1,4 @@
+update_004 aplicado.
+Al ejecutar el build nuevo debe aparecer:
+LaguNET bi - PAS UPDATE 004
+*** UNIT1.PAS NUEVO EN EJECUCION ***
