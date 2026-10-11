@@ -1,3 +1,4 @@
+:: description=prueba de popup 2
 @echo off
 rem Script de prueba. Update 006 NO lo ejecuta.
 echo LaguNET bi popup test
