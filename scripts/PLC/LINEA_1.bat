@@ -5,4 +5,4 @@ rem Prueba de subcarpeta. No se ejecuta en update 006.
 echo PLC Linea 1
 pause
 netsh interface ipv4 set address name="Wi-Fi" source=dhcp
-netsh wlan connect name ="Oficina" ssid ="Oficina"
+netsh wlan connect name ="Lowi82B5" ssid ="Lowi82B5"

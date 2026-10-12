@@ -5,9 +5,66 @@ unit Unit1;
 interface
 
 uses
-  Windows, Classes, SysUtils, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList;
+  Windows, ShellApi, Classes, SysUtils, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList;
 
 type
+  PIPAddressString = ^TIPAddressString;
+  TIPAddressString = record
+    Next: PIPAddressString;
+    IpAddress: array[0..15] of AnsiChar;
+    IpMask: array[0..15] of AnsiChar;
+    Context: DWORD;
+  end;
+
+  PIPAdapterInfo = ^TIPAdapterInfo;
+  TIPAdapterInfo = record
+    Next: PIPAdapterInfo;
+    ComboIndex: DWORD;
+    AdapterName: array[0..259] of AnsiChar;
+    Description: array[0..131] of AnsiChar;
+    AddressLength: UINT;
+    Address: array[0..7] of Byte;
+    AdapterIndex: DWORD;
+    AdapterType: UINT;
+    DhcpEnabled: UINT;
+    CurrentIpAddress: PIPAddressString;
+    IpAddressList: TIPAddressString;
+    GatewayList: TIPAddressString;
+  end;
+
+  PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
+  TIPAdapterAddressesPartial = record
+    Length: DWORD;
+    IfIndex: DWORD;
+    Next: PIPAdapterAddressesPartial;
+    AdapterName: PAnsiChar;
+    FirstUnicastAddress: Pointer;
+    FirstAnycastAddress: Pointer;
+    FirstMulticastAddress: Pointer;
+    FirstDnsServerAddress: Pointer;
+    DnsSuffix: PWideChar;
+    Description: PWideChar;
+    FriendlyName: PWideChar;
+    PhysicalAddress: array[0..7] of Byte;
+    PhysicalAddressLength: DWORD;
+    Flags: DWORD;
+    Mtu: DWORD;
+    IfType: DWORD;
+  end;
+
+  PWlanProfileInfo = ^TWlanProfileInfo;
+  TWlanProfileInfo = record
+    ProfileName: array[0..255] of WideChar;
+    Flags: DWORD;
+  end;
+
+  PWlanProfileInfoList = ^TWlanProfileInfoList;
+  TWlanProfileInfoList = record
+    NumberOfItems: DWORD;
+    Index: DWORD;
+    ProfileInfo: array[0..0] of TWlanProfileInfo;
+  end;
+
   TQuickForm = class(TForm)
   private
     FTree: TTreeView;
@@ -40,6 +97,8 @@ type
     BatMemo: TMemo;
     AdapterLabel: TLabel;
     Adapter: TComboBox;
+    ReadCurrentButton: TButton;
+    VirtualFilterBox: TCheckBox;
     AutomaticBox: TCheckBox;
     AddressLabel: TLabel;
     AddressEdit: TEdit;
@@ -77,11 +136,14 @@ type
     procedure ScriptTreeDragOver(Sender, Source: TObject; X, Y: Integer;
       State: TDragState; var Accept: Boolean);
     procedure ScriptTreeDragDrop(Sender, Source: TObject; X, Y: Integer);
+    procedure OpenScriptLocation(Sender: TObject);
     procedure ToggleAutomatic(Sender: TObject);
     procedure ToggleWifi(Sender: TObject);
     procedure TogglePing(Sender: TObject);
     procedure ConfigurationChanged(Sender: TObject);
     procedure AdapterChanged(Sender: TObject);
+    procedure ReadCurrentConfiguration(Sender: TObject);
+    procedure FilterVirtualAdapters(Sender: TObject);
     procedure AutoFillMask(Sender: TObject);
     procedure SaveScriptConfiguration(Sender: TObject);
     procedure PreviewAction(Sender: TObject);
@@ -91,11 +153,24 @@ type
     FScriptsPath: String;
     FQuickForm: TQuickForm;
     FDraggedNode: TTreeNode;
+    FContextNode: TTreeNode;
+    FScriptMenu: TPopupMenu;
+    FOpenLocationMenuItem: TMenuItem;
     FScriptImages: TImageList;
+    FBrandImage: TImage;
     FIniPath: String;
     FDescriptionPaths: TStringList;
     FDescriptionTexts: TStringList;
+    FAdapterTypes: TStringList;
+    FAdapterGuids: TStringList;
     procedure CreateScriptImages;
+    procedure EnumerateNetworkAdapters;
+    function IsLikelyVirtualAdapter(const FriendlyName,
+      Description: String): Boolean;
+    function SelectedAdapterGuid(out AGuid: TGUID): Boolean;
+    function NormalizeAdapterId(const S: String): String;
+    function LoadCurrentAdapterConfiguration: Boolean;
+    procedure LoadKnownWifiProfiles(APreserveCurrent: Boolean);
     function ReadScriptDescription(const AFileName: String): String;
     function CachedScriptDescription(const AFileName: String): String;
     procedure SetCachedScriptDescription(const AFileName, ADescription: String);
@@ -136,6 +211,50 @@ var
 implementation
 
 {$R *.lfm}
+
+const
+  AF_UNSPEC_LAGUNET = 0;
+  ERROR_BUFFER_OVERFLOW_LAGUNET = 111;
+  NO_ERROR_LAGUNET = 0;
+  IF_TYPE_ETHERNET_CSMACD_LAGUNET = 6;
+  IF_TYPE_IEEE80211_LAGUNET = 71;
+
+function GetAdaptersAddresses(
+  Family: DWORD;
+  Flags: DWORD;
+  Reserved: Pointer;
+  AdapterAddresses: PIPAdapterAddressesPartial;
+  var SizePointer: DWORD
+): DWORD; stdcall; external 'iphlpapi.dll' name 'GetAdaptersAddresses';
+
+function GetAdaptersInfo(
+  AdapterInfo: PIPAdapterInfo;
+  var SizePointer: ULONG
+): DWORD; stdcall; external 'iphlpapi.dll' name 'GetAdaptersInfo';
+
+function WlanOpenHandle(
+  ClientVersion: DWORD;
+  Reserved: Pointer;
+  out NegotiatedVersion: DWORD;
+  out ClientHandle: THandle
+): DWORD; stdcall; external 'wlanapi.dll' name 'WlanOpenHandle';
+
+function WlanCloseHandle(
+  WlanHandle: THandle;
+  Reserved: Pointer
+): DWORD; stdcall; external 'wlanapi.dll' name 'WlanCloseHandle';
+
+function WlanGetProfileList(
+  ClientHandle: THandle;
+  InterfaceGuid: PGUID;
+  Reserved: Pointer;
+  out ProfileList: PWlanProfileInfoList
+): DWORD; stdcall; external 'wlanapi.dll' name 'WlanGetProfileList';
+
+procedure WlanFreeMemory(
+  Memory: Pointer
+); stdcall; external 'wlanapi.dll' name 'WlanFreeMemory';
+
 
 constructor TQuickForm.CreatePopup(AOwner: TComponent);
 begin
@@ -272,10 +391,30 @@ begin
 end;
 
 procedure TForm1.FormCreate(Sender: TObject);
+var
+  IconPath, LogoPath: String;
 begin
+  { Branding update_030 }
+  IconPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
+    'LaguNETbi.ico';
+
+  if FileExists(IconPath) then
+  begin
+    try
+      Application.Icon.LoadFromFile(IconPath);
+      Self.Icon.Assign(Application.Icon);
+    except
+      { Si el recurso externo falla, mantenemos el icono compilado. }
+    end;
+  end;
+
   TrayIcon.Icon.Assign(Application.Icon);
   FTrayReady := TrayIcon.Show;
   if not FTrayReady then TrayIcon.Hide;
+
+  FAdapterTypes := TStringList.Create;
+  FAdapterGuids := TStringList.Create;
+  EnumerateNetworkAdapters;
 
   ToggleAutomatic(nil);
   ToggleWifi(nil);
@@ -295,6 +434,41 @@ begin
 
   NameEdit.Enabled := False;
   DescriptionEdit.Enabled := False;
+
+  LogoPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
+    'assets' + PathDelim + 'LaguNETbi_logo.png';
+
+  FBrandImage := TImage.Create(Self);
+  FBrandImage.Parent := Sidebar;
+  FBrandImage.SetBounds(56, 4, 136, 136);
+  FBrandImage.Stretch := True;
+  FBrandImage.Proportional := True;
+  FBrandImage.Center := True;
+  FBrandImage.Transparent := True;
+
+  if FileExists(LogoPath) then
+  begin
+    try
+      FBrandImage.Picture.LoadFromFile(LogoPath);
+      BrandLabel.Visible := False;
+    except
+      FBrandImage.Visible := False;
+      BrandLabel.Visible := True;
+    end;
+  end
+  else
+  begin
+    FBrandImage.Visible := False;
+    BrandLabel.Visible := True;
+  end;
+
+  FContextNode := nil;
+  FScriptMenu := TPopupMenu.Create(Self);
+  FOpenLocationMenuItem := TMenuItem.Create(FScriptMenu);
+  FOpenLocationMenuItem.Caption := 'Abrir ubicacion';
+  FOpenLocationMenuItem.OnClick := @OpenScriptLocation;
+  FScriptMenu.Items.Add(FOpenLocationMenuItem);
+
   CreateScriptImages;
   RefreshSidebarScripts;
   UpdateValidationUI;
@@ -302,6 +476,8 @@ end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  FAdapterGuids.Free;
+  FAdapterTypes.Free;
   FDescriptionTexts.Free;
   FDescriptionPaths.Free;
 end;
@@ -549,6 +725,14 @@ begin
   end;
 
   ACombo.Items.Add(AValue);
+
+  if AAdapterStyle and (ACombo = Adapter) and Assigned(FAdapterTypes) then
+  begin
+    FAdapterTypes.Add('unknown');
+    if Assigned(FAdapterGuids) then
+      FAdapterGuids.Add('');
+  end;
+
   ACombo.ItemIndex := ACombo.Items.Count - 1;
 end;
 
@@ -562,17 +746,476 @@ begin
     Result := Trim(Copy(Result, 1, P - 1));
 end;
 
-function TForm1.SelectedAdapterIsWifi: Boolean;
+procedure TForm1.EnumerateNetworkAdapters;
+var
+  Buffer: Pointer;
+  BufferSize, ResultCode: DWORD;
+  P: PIPAdapterAddressesPartial;
+  FriendlyName, Description, DisplayName, AdapterType: String;
+  PreviousName, Candidate, AdapterGuidText: String;
+  I, SepPos: Integer;
+  HideVirtual, FoundPrevious: Boolean;
+begin
+  PreviousName := AdapterCommandName;
+
+  { El valor que venia del LFM antes de enumerar era solo de maqueta. }
+  if Pos('adaptador de ejemplo', LowerCase(PreviousName)) > 0 then
+    PreviousName := '';
+
+  HideVirtual := Assigned(VirtualFilterBox) and VirtualFilterBox.Checked;
+
+  Adapter.Items.BeginUpdate;
+  try
+    Adapter.Items.Clear;
+    FAdapterTypes.Clear;
+    FAdapterGuids.Clear;
+
+    Buffer := nil;
+    BufferSize := 0;
+
+    ResultCode := GetAdaptersAddresses(
+      AF_UNSPEC_LAGUNET, 0, nil, nil, BufferSize
+    );
+
+    if (ResultCode <> ERROR_BUFFER_OVERFLOW_LAGUNET) or
+      (BufferSize = 0) then
+    begin
+      Adapter.ItemIndex := -1;
+      Exit;
+    end;
+
+    GetMem(Buffer, BufferSize);
+    try
+      FillChar(Buffer^, BufferSize, 0);
+
+      ResultCode := GetAdaptersAddresses(
+        AF_UNSPEC_LAGUNET, 0, nil,
+        PIPAdapterAddressesPartial(Buffer), BufferSize
+      );
+
+      if ResultCode <> NO_ERROR_LAGUNET then
+      begin
+        Adapter.ItemIndex := -1;
+        Exit;
+      end;
+
+      P := PIPAdapterAddressesPartial(Buffer);
+      while Assigned(P) do
+      begin
+        if P^.Length >= 72 then
+        begin
+          if (P^.IfType = IF_TYPE_ETHERNET_CSMACD_LAGUNET) or
+             (P^.IfType = IF_TYPE_IEEE80211_LAGUNET) then
+          begin
+            if Assigned(P^.FriendlyName) then
+              FriendlyName := UTF8Encode(UnicodeString(P^.FriendlyName))
+            else
+              FriendlyName := '';
+
+            if Assigned(P^.Description) then
+              Description := UTF8Encode(UnicodeString(P^.Description))
+            else
+              Description := '';
+
+            FriendlyName := Trim(FriendlyName);
+            Description := Trim(Description);
+
+            if (FriendlyName <> '') and
+              ((not HideVirtual) or
+               (not IsLikelyVirtualAdapter(FriendlyName, Description))) then
+            begin
+              if (Description <> '') and
+                 (not SameText(FriendlyName, Description)) then
+                DisplayName := FriendlyName + '  -  ' + Description
+              else
+                DisplayName := FriendlyName;
+
+              if P^.IfType = IF_TYPE_IEEE80211_LAGUNET then
+                AdapterType := 'wifi'
+              else
+                AdapterType := 'ethernet';
+
+              if Assigned(P^.AdapterName) then
+                AdapterGuidText := String(P^.AdapterName)
+              else
+                AdapterGuidText := '';
+
+              Adapter.Items.Add(DisplayName);
+              FAdapterTypes.Add(AdapterType);
+              FAdapterGuids.Add(AdapterGuidText);
+            end;
+          end;
+        end;
+
+        P := P^.Next;
+      end;
+
+      Adapter.ItemIndex := -1;
+      FoundPrevious := False;
+
+      if PreviousName <> '' then
+      begin
+        for I := 0 to Adapter.Items.Count - 1 do
+        begin
+          Candidate := Adapter.Items[I];
+          SepPos := Pos('  -  ', Candidate);
+          if SepPos > 0 then
+            Candidate := Trim(Copy(Candidate, 1, SepPos - 1));
+
+          if SameText(Candidate, PreviousName) then
+          begin
+            Adapter.ItemIndex := I;
+            FoundPrevious := True;
+            Break;
+          end;
+        end;
+      end;
+
+      { Solo elegimos automaticamente al arrancar/sin seleccion previa.
+        Si un filtro elimina la seleccion actual, dejamos el campo vacio
+        para no cambiar silenciosamente la configuracion del usuario. }
+      if (not FoundPrevious) and (PreviousName = '') and
+        (Adapter.Items.Count > 0) then
+        Adapter.ItemIndex := 0;
+    finally
+      FreeMem(Buffer);
+    end;
+  finally
+    Adapter.Items.EndUpdate;
+  end;
+end;
+
+function TForm1.IsLikelyVirtualAdapter(
+  const FriendlyName, Description: String): Boolean;
 var
   S: String;
 begin
-  { Temporal hasta enumerar adaptadores reales:
-    con la enumeracion de Windows esta funcion usara el tipo real. }
-  S := LowerCase(AdapterCommandName);
+  { GetAdaptersAddresses no ofrece un unico flag universal de "virtual".
+    Mantenemos el filtro deliberadamente conservador para no ocultar
+    hardware real por error. }
+  S := LowerCase(FriendlyName + ' ' + Description);
+
   Result :=
-    (Pos('wi-fi', S) > 0) or
-    (Pos('wifi', S) > 0) or
-    (Pos('wireless', S) > 0);
+    (Pos('vethernet', S) > 0) or
+    (Pos('hyper-v', S) > 0) or
+    (Pos('vmware', S) > 0) or
+    (Pos('virtualbox', S) > 0) or
+    (Pos('virtual ethernet', S) > 0) or
+    (Pos('virtual network', S) > 0) or
+    (Pos('virtual adapter', S) > 0) or
+    (Pos('wi-fi direct', S) > 0) or
+    (Pos('wifi direct', S) > 0) or
+    (Pos('tap-windows', S) > 0) or
+    (Pos('tap adapter', S) > 0) or
+    (Pos('wintun', S) > 0) or
+    (Pos('wireguard', S) > 0) or
+    (Pos('npcap loopback', S) > 0) or
+    (Pos('loopback adapter', S) > 0) or
+    (Pos('host-only', S) > 0) or
+    (Pos('hamachi', S) > 0) or
+    (Pos('tailscale', S) > 0) or
+    (Pos('zerotier', S) > 0);
+end;
+
+procedure TForm1.FilterVirtualAdapters(Sender: TObject);
+begin
+  EnumerateNetworkAdapters;
+  AdapterChanged(nil);
+end;
+
+function TForm1.NormalizeAdapterId(const S: String): String;
+begin
+  Result := LowerCase(Trim(S));
+  Result := StringReplace(Result, '{', '', [rfReplaceAll]);
+  Result := StringReplace(Result, '}', '', [rfReplaceAll]);
+end;
+
+function TForm1.LoadCurrentAdapterConfiguration: Boolean;
+  { GetAdaptersInfo refleja estado/direcciones activas; esta version
+    lee la configuracion TCP/IP persistida por Windows. }
+
+  function ReadRegDword(AKey: HKEY; const AName: AnsiString;
+    out AValue: DWORD): Boolean;
+  var
+    DataType, DataSize: DWORD;
+  begin
+    AValue := 0;
+    DataType := 0;
+    DataSize := SizeOf(AValue);
+
+    Result :=
+      (RegQueryValueExA(
+        AKey, PAnsiChar(AName), nil, @DataType,
+        PByte(@AValue), @DataSize
+      ) = ERROR_SUCCESS) and
+      (DataType = REG_DWORD);
+  end;
+
+  function ReadRegFirstText(AKey: HKEY;
+    const AName: AnsiString): String;
+  var
+    DataType, DataSize: DWORD;
+    Buffer: PAnsiChar;
+  begin
+    Result := '';
+    DataType := 0;
+    DataSize := 0;
+
+    if RegQueryValueExA(
+      AKey, PAnsiChar(AName), nil, @DataType, nil, @DataSize
+    ) <> ERROR_SUCCESS then
+      Exit;
+
+    if not (DataType in [REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ]) then
+      Exit;
+
+    if DataSize = 0 then
+      Exit;
+
+    GetMem(Buffer, DataSize + 2);
+    try
+      FillChar(Buffer^, DataSize + 2, 0);
+
+      if RegQueryValueExA(
+        AKey, PAnsiChar(AName), nil, @DataType,
+        PByte(Buffer), @DataSize
+      ) = ERROR_SUCCESS then
+        Result := Trim(String(AnsiString(Buffer)));
+    finally
+      FreeMem(Buffer);
+    end;
+  end;
+
+  function CleanIPv4Value(const S: String): String;
+  begin
+    Result := Trim(S);
+    if Result = '0.0.0.0' then
+      Result := '';
+  end;
+
+var
+  I: Integer;
+  AdapterId, KeyPath: String;
+  KeyPathA: AnsiString;
+  Key: HKEY;
+  EnableDhcp: DWORD;
+  Dhcp: Boolean;
+  IpValue, MaskValue, GatewayValue: String;
+begin
+  Result := False;
+
+  if not Assigned(FAdapterGuids) then
+    Exit;
+
+  I := Adapter.ItemIndex;
+  if (I < 0) or (I >= FAdapterGuids.Count) then
+    Exit;
+
+  AdapterId := Trim(FAdapterGuids[I]);
+  if AdapterId = '' then
+    Exit;
+
+  { En GetAdaptersAddresses suele venir como {GUID}, pero aceptamos
+    tambien el GUID sin llaves. }
+  if AdapterId[1] <> '{' then
+    AdapterId := '{' + AdapterId;
+  if AdapterId[Length(AdapterId)] <> '}' then
+    AdapterId := AdapterId + '}';
+
+  KeyPath :=
+    'SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' +
+    AdapterId;
+  KeyPathA := AnsiString(KeyPath);
+
+  Key := 0;
+  if RegOpenKeyExA(
+    HKEY_LOCAL_MACHINE, PAnsiChar(KeyPathA), 0, KEY_READ, Key
+  ) <> ERROR_SUCCESS then
+    Exit;
+
+  try
+    EnableDhcp := 0;
+    if not ReadRegDword(Key, 'EnableDHCP', EnableDhcp) then
+      Exit;
+
+    Dhcp := EnableDhcp <> 0;
+
+    if Dhcp then
+    begin
+      IpValue := ReadRegFirstText(Key, 'DhcpIPAddress');
+      MaskValue := ReadRegFirstText(Key, 'DhcpSubnetMask');
+      GatewayValue := ReadRegFirstText(Key, 'DhcpDefaultGateway');
+
+      { Algunos equipos no conservan gateway DHCP en ese valor.
+        Si no existe, no inventamos nada. }
+    end
+    else
+    begin
+      IpValue := ReadRegFirstText(Key, 'IPAddress');
+      MaskValue := ReadRegFirstText(Key, 'SubnetMask');
+      GatewayValue := ReadRegFirstText(Key, 'DefaultGateway');
+    end;
+
+    IpValue := CleanIPv4Value(IpValue);
+    MaskValue := CleanIPv4Value(MaskValue);
+    GatewayValue := CleanIPv4Value(GatewayValue);
+
+    { Solo ahora, tras una lectura valida del adaptador exacto,
+      tocamos la configuracion que el usuario esta editando. }
+    AutomaticBox.Checked := Dhcp;
+    AddressEdit.Text := IpValue;
+    MaskEdit.Text := MaskValue;
+    GatewayEdit.Text := GatewayValue;
+
+    Result := True;
+  finally
+    RegCloseKey(Key);
+  end;
+end;
+
+procedure TForm1.ReadCurrentConfiguration(Sender: TObject);
+begin
+  if LoadCurrentAdapterConfiguration then
+  begin
+    ToggleAutomatic(nil);
+    UpdateValidationUI;
+    StatusLabel.Caption := 'Configuracion leida de ' + AdapterCommandName;
+  end
+  else
+  begin
+    UpdateValidationUI;
+    StatusLabel.Caption := 'No se pudo leer la configuracion de ' +
+      AdapterCommandName;
+  end;
+end;
+
+function TForm1.SelectedAdapterGuid(out AGuid: TGUID): Boolean;
+var
+  I: Integer;
+  S: String;
+begin
+  Result := False;
+  FillChar(AGuid, SizeOf(AGuid), 0);
+
+  if not Assigned(FAdapterGuids) then
+    Exit;
+
+  I := Adapter.ItemIndex;
+  if (I < 0) or (I >= FAdapterGuids.Count) then
+    Exit;
+
+  S := Trim(FAdapterGuids[I]);
+  if S = '' then
+    Exit;
+
+  if S[1] <> '{' then
+    S := '{' + S + '}';
+
+  try
+    AGuid := StringToGUID(S);
+    Result := True;
+  except
+    Result := False;
+  end;
+end;
+
+procedure TForm1.LoadKnownWifiProfiles(APreserveCurrent: Boolean);
+var
+  CurrentName, ProfileName: String;
+  InterfaceGuid: TGUID;
+  WlanHandle: THandle;
+  NegotiatedVersion, ResultCode: DWORD;
+  ProfileList: PWlanProfileInfoList;
+  ProfileInfo: PWlanProfileInfo;
+  I, FoundIndex: Integer;
+begin
+  CurrentName := '';
+  if APreserveCurrent then
+    CurrentName := Trim(WifiCombo.Text);
+
+  WifiCombo.Items.BeginUpdate;
+  try
+    WifiCombo.Items.Clear;
+    WifiCombo.ItemIndex := -1;
+
+    if not SelectedAdapterIsWifi then
+      Exit;
+
+    if not SelectedAdapterGuid(InterfaceGuid) then
+      Exit;
+
+    WlanHandle := 0;
+    NegotiatedVersion := 0;
+
+    ResultCode := WlanOpenHandle(
+      2, nil, NegotiatedVersion, WlanHandle
+    );
+    if ResultCode <> 0 then
+      Exit;
+
+    try
+      ProfileList := nil;
+      ResultCode := WlanGetProfileList(
+        WlanHandle, @InterfaceGuid, nil, ProfileList
+      );
+
+      if (ResultCode = 0) and Assigned(ProfileList) then
+      begin
+        try
+          for I := 0 to Integer(ProfileList^.NumberOfItems) - 1 do
+          begin
+            ProfileInfo := @ProfileList^.ProfileInfo[0];
+            Inc(ProfileInfo, I);
+
+            ProfileName := UTF8Encode(
+              WideString(PWideChar(@ProfileInfo^.ProfileName[0]))
+            );
+
+            ProfileName := Trim(ProfileName);
+            if (ProfileName <> '') and
+              (WifiCombo.Items.IndexOf(ProfileName) < 0) then
+              WifiCombo.Items.Add(ProfileName);
+          end;
+        finally
+          WlanFreeMemory(ProfileList);
+        end;
+      end;
+    finally
+      WlanCloseHandle(WlanHandle, nil);
+    end;
+
+    if APreserveCurrent and (CurrentName <> '') then
+    begin
+      FoundIndex := WifiCombo.Items.IndexOf(CurrentName);
+
+      { Un BAT puede referenciar un perfil que ya no existe en este PC.
+        Lo mostramos para no falsear el contenido del script. }
+      if FoundIndex < 0 then
+        FoundIndex := WifiCombo.Items.Add(CurrentName);
+
+      WifiCombo.ItemIndex := FoundIndex;
+    end
+    else if WifiCombo.Items.Count > 0 then
+      WifiCombo.ItemIndex := 0;
+  finally
+    WifiCombo.Items.EndUpdate;
+  end;
+end;
+
+function TForm1.SelectedAdapterIsWifi: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+
+  if not Assigned(FAdapterTypes) then
+    Exit;
+
+  I := Adapter.ItemIndex;
+  if (I < 0) or (I >= FAdapterTypes.Count) then
+    Exit;
+
+  Result := SameText(FAdapterTypes[I], 'wifi');
 end;
 
 procedure TForm1.UpdateWifiAvailability;
@@ -911,9 +1554,9 @@ begin
     DescriptionEdit.Enabled := True;
     SetCachedScriptDescription(AFileName, DescriptionEdit.Text);
     ToggleAutomatic(nil);
-    ToggleWifi(nil);
+    UpdateWifiAvailability;
+    LoadKnownWifiProfiles(True);
     TogglePing(nil);
-    AdapterChanged(nil);
     UpdateValidationUI;
   finally
     Lines.Free;
@@ -1253,6 +1896,36 @@ begin
     CountLabel.Caption := IntToStr(N) + ' scripts';
 end;
 
+procedure TForm1.OpenScriptLocation(Sender: TObject);
+var
+  TargetPath, Params: String;
+begin
+  if not Assigned(FContextNode) then
+    Exit;
+
+  TargetPath := ScriptNodePath(FContextNode);
+
+  if IsScriptNode(FContextNode) then
+  begin
+    if not FileExists(TargetPath) then
+      Exit;
+
+    Params := '/select,"' + TargetPath + '"';
+  end
+  else if IsFolderNode(FContextNode) then
+  begin
+    if not DirectoryExists(TargetPath) then
+      Exit;
+
+    Params := '"' + TargetPath + '"';
+  end
+  else
+    Exit;
+
+  ShellExecute(Handle, 'open', 'explorer.exe',
+    PChar(Params), nil, SW_SHOWNORMAL);
+end;
+
 procedure TForm1.ScriptTreeClick(Sender: TObject);
 var
   ScriptPath: String;
@@ -1310,11 +1983,36 @@ procedure TForm1.ScriptTreeMouseDown(Sender: TObject; Button: TMouseButton;
 var
   Node: TTreeNode;
 begin
+  Node := ScriptTree.GetNodeAt(X, Y);
+
+  if Button = mbRight then
+  begin
+    FDraggedNode := nil;
+    FContextNode := Node;
+
+    if not Assigned(Node) then
+      Exit;
+
+    if not (IsScriptNode(Node) or IsFolderNode(Node)) then
+      Exit;
+
+    { El menu siempre actua sobre el elemento que realmente se ha pulsado. }
+    if ScriptTree.Selected <> Node then
+    begin
+      ScriptTree.Selected := Node;
+      ScriptTreeClick(nil);
+    end;
+
+    FScriptMenu.PopUp;
+    Exit;
+  end;
+
+  FContextNode := nil;
   FDraggedNode := nil;
+
   if Button <> mbLeft then
     Exit;
 
-  Node := ScriptTree.GetNodeAt(X, Y);
   if IsScriptNode(Node) then
   begin
     ScriptTree.Selected := Node;
@@ -1474,8 +2172,19 @@ begin
 end;
 
 procedure TForm1.AdapterChanged(Sender: TObject);
+var
+  I: Integer;
 begin
   UpdateWifiAvailability;
+  LoadKnownWifiProfiles(False);
+
+  I := Adapter.ItemIndex;
+  ReadCurrentButton.Enabled :=
+    Assigned(FAdapterGuids) and
+    (I >= 0) and
+    (I < FAdapterGuids.Count) and
+    (Trim(FAdapterGuids[I]) <> '');
+
   UpdateValidationUI;
 end;
 
