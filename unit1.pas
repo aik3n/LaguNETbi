@@ -5,7 +5,7 @@ unit Unit1;
 interface
 
 uses
-  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList;
+  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList, Buttons;
 
 type
 PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
@@ -172,7 +172,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FOpenLocationMenuItem: TMenuItem;
     FScriptImages: TImageList;
     FBrandImage: TImage;
-    FHelpButton: TButton;
+    FHelpButton: TSpeedButton;
     FIniPath: String;
     FDescriptionPaths: TStringList;
     FDescriptionTexts: TStringList;
@@ -588,17 +588,50 @@ end;
 procedure TForm1.FormCreate(Sender: TObject);
 var
   IconPath, LogoPath: String;
+  InfoBmp: TBitmap;
 begin
-  FHelpButton := TButton.Create(Self);
+  FHelpButton := TSpeedButton.Create(Self);
   FHelpButton.Parent := Header;
-  FHelpButton.SetBounds(490, 6, 74, 32);
-  FHelpButton.Caption := 'Ayuda';
+  FHelpButton.SetBounds(592, 8, 48, 48);
+  FHelpButton.Flat := True;
+  FHelpButton.Caption := '';
+  FHelpButton.Hint := 'Informacion';
+  FHelpButton.ShowHint := True;
+  FHelpButton.Cursor := crHandPoint;
   FHelpButton.Anchors := [akTop, akRight];
   FHelpButton.OnClick := @ShowHelpWindow;
 
-  { Branding update_030 }
+  InfoBmp := TBitmap.Create;
+  try
+    InfoBmp.SetSize(30, 30);
+    InfoBmp.Transparent := True;
+    InfoBmp.TransparentColor := clFuchsia;
+
+    InfoBmp.Canvas.Brush.Color := clFuchsia;
+    InfoBmp.Canvas.FillRect(0, 0, 30, 30);
+
+    { Circulo limpio, del mismo tono oscuro usado en la interfaz. }
+    InfoBmp.Canvas.Brush.Style := bsClear;
+    InfoBmp.Canvas.Pen.Color := $00332114;
+    InfoBmp.Canvas.Pen.Width := 2;
+    InfoBmp.Canvas.Ellipse(2, 2, 28, 28);
+
+    { Punto de la i. }
+    InfoBmp.Canvas.Brush.Style := bsSolid;
+    InfoBmp.Canvas.Brush.Color := $00332114;
+    InfoBmp.Canvas.Pen.Color := $00332114;
+    InfoBmp.Canvas.Ellipse(13, 7, 17, 11);
+
+    { Cuerpo de la i. }
+    InfoBmp.Canvas.Rectangle(13, 13, 17, 23);
+
+    FHelpButton.Glyph.Assign(InfoBmp);
+  finally
+    InfoBmp.Free;
+  end;
+
   IconPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
-    'LaguNETbi.ico';
+    'assets' + PathDelim + 'LaguNETbi.ico';
 
   if FileExists(IconPath) then
   begin
@@ -638,11 +671,11 @@ begin
   DescriptionEdit.Enabled := False;
 
   LogoPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
-    'assets' + PathDelim + 'LaguNETbi_logo.png';
+    'assets' + PathDelim + 'LaguNET bi logo.png';
 
   FBrandImage := TImage.Create(Self);
-  FBrandImage.Parent := Sidebar;
-  FBrandImage.SetBounds(56, 4, 136, 136);
+  FBrandImage.Parent := Header;
+  FBrandImage.SetBounds(16, 8, 152, 48);
   FBrandImage.Stretch := True;
   FBrandImage.Proportional := True;
   FBrandImage.Center := True;
@@ -1702,6 +1735,7 @@ begin
       Exit;
     end;
 
+    PreviewLabel.Caption := ExtractFileName(AFileName);
     NameEdit.Enabled := True;
     NameEdit.Text := ChangeFileExt(ExtractFileName(AFileName), '');
 
@@ -2156,6 +2190,7 @@ begin
   if IsFolderNode(ScriptTree.Selected) then
   begin
     { Modo nuevo script: conservamos la configuracion de red actual. }
+    PreviewLabel.Caption := 'Nuevo BAT';
     NameEdit.Enabled := True;
     NameEdit.Text := '';
     DescriptionEdit.Enabled := True;
@@ -2167,6 +2202,7 @@ begin
     Exit;
   end;
 
+  PreviewLabel.Caption := 'Sin BAT seleccionado';
   NameEdit.Text := '';
   NameEdit.Enabled := False;
   DescriptionEdit.Text := '';
