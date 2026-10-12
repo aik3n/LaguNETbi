@@ -125,19 +125,31 @@ object Form1: TForm1
       end
     end
     object ProfileTitle: TLabel
-      Left = 32
-      Top = 86
+      Left = 34
+      Top = 78
       Width = 500
-      Height = 36
-      Caption = 'Oficina'
-      Font.Size = 24
-      Font.Color = 3350804
+      Height = 18
+      Caption = 'NOMBRE'
+      Font.Size = 9
+      Font.Color = 7760478
       ParentFont = False
-      Font.Style = [fsBold]
+      Font.Style = []
+    end
+    object NameEdit: TEdit
+      Left = 32
+      Top = 98
+      Width = 580
+      Height = 32
+      Text = ''
+      Font.Size = 10
+      ParentFont = False
+      Enabled = False
+      OnChange = ConfigurationChanged
+      TabOrder = 0
     end
     object DescriptionLabel: TLabel
       Left = 34
-      Top = 132
+      Top = 139
       Width = 500
       Height = 20
       Caption = 'DESCRIPCION'
@@ -147,17 +159,17 @@ object Form1: TForm1
     end
     object DescriptionEdit: TEdit
       Left = 32
-      Top = 154
+      Top = 159
       Width = 580
       Height = 32
       Text = ''
       Font.Size = 10
       ParentFont = False
-      TabOrder = 9
+      TabOrder = 1
     end
     object AdapterLabel: TLabel
       Left = 34
-      Top = 198
+      Top = 199
       Width = 400
       Height = 24
       Caption = 'ADAPTADOR DE RED'
@@ -167,7 +179,7 @@ object Form1: TForm1
     end
     object Adapter: TComboBox
       Left = 32
-      Top = 220
+      Top = 219
       Width = 580
       Height = 34
       Style = csDropDownList
@@ -177,20 +189,21 @@ object Form1: TForm1
       )
       ItemIndex = 0
       Text = 'Ethernet  -  Adaptador de ejemplo'
-      TabOrder = 0
+      OnChange = AdapterChanged
+      TabOrder = 2
     end
     object AutomaticBox: TCheckBox
       Left = 32
-      Top = 263
+      Top = 254
       Width = 580
       Height = 26
       Caption = 'Obtener la configuracion automaticamente (DHCP)'
       OnClick = ToggleAutomatic
-      TabOrder = 1
+      TabOrder = 3
     end
     object AddressLabel: TLabel
       Left = 34
-      Top = 300
+      Top = 286
       Width = 250
       Height = 24
       Caption = 'Direccion IP'
@@ -200,17 +213,19 @@ object Form1: TForm1
     end
     object AddressEdit: TEdit
       Left = 32
-      Top = 323
+      Top = 307
       Width = 260
       Height = 34
       Text = '192.168.1.120'
       Font.Size = 11
       ParentFont = False
-      TabOrder = 2
+      OnChange = ConfigurationChanged
+      OnExit = AutoFillMask
+      TabOrder = 4
     end
     object MaskLabel: TLabel
       Left = 326
-      Top = 300
+      Top = 286
       Width = 250
       Height = 24
       Caption = 'Mascara de subred'
@@ -220,17 +235,18 @@ object Form1: TForm1
     end
     object MaskEdit: TEdit
       Left = 324
-      Top = 323
+      Top = 307
       Width = 288
       Height = 34
       Text = '255.255.255.0'
       Font.Size = 11
       ParentFont = False
-      TabOrder = 3
+      OnChange = ConfigurationChanged
+      TabOrder = 5
     end
     object GatewayLabel: TLabel
       Left = 34
-      Top = 369
+      Top = 352
       Width = 250
       Height = 24
       Caption = 'Puerta de enlace'
@@ -240,28 +256,29 @@ object Form1: TForm1
     end
     object GatewayEdit: TEdit
       Left = 32
-      Top = 392
+      Top = 375
       Width = 260
       Height = 34
       Text = '192.168.1.1'
       Font.Size = 11
       ParentFont = False
-      TabOrder = 4
+      OnChange = ConfigurationChanged
+      TabOrder = 6
     end
     object WifiBox: TCheckBox
       Left = 324
-      Top = 369
+      Top = 352
       Width = 288
       Height = 24
       Caption = 'Conectar a red Wi-Fi'
       Checked = True
       State = cbChecked
       OnClick = ToggleWifi
-      TabOrder = 5
+      TabOrder = 7
     end
     object WifiCombo: TComboBox
       Left = 324
-      Top = 392
+      Top = 375
       Width = 288
       Height = 34
       Style = csDropDownList
@@ -272,28 +289,30 @@ object Form1: TForm1
       )
       ItemIndex = 0
       Text = 'Oficina'
-      TabOrder = 6
+      OnChange = ConfigurationChanged
+      TabOrder = 8
     end
     object PingBox: TCheckBox
       Left = 32
-      Top = 441
+      Top = 431
       Width = 260
       Height = 24
       Caption = 'Test Ping'
       Checked = True
       State = cbChecked
       OnClick = TogglePing
-      TabOrder = 7
+      TabOrder = 9
     end
     object PingEdit: TEdit
       Left = 32
-      Top = 465
+      Top = 456
       Width = 580
       Height = 34
       Text = '192.168.1.1'
       Font.Size = 11
       ParentFont = False
-      TabOrder = 8
+      OnChange = ConfigurationChanged
+      TabOrder = 10
     end
     object Footer: TPanel
       Left = 32

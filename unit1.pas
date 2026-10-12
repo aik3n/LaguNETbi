@@ -33,6 +33,7 @@ type
     PreviewLabel: TLabel;
     Header: TPanel;
     ProfileTitle: TLabel;
+    NameEdit: TEdit;
     DescriptionLabel: TLabel;
     DescriptionEdit: TEdit;
     BatContentLabel: TLabel;
@@ -79,6 +80,9 @@ type
     procedure ToggleAutomatic(Sender: TObject);
     procedure ToggleWifi(Sender: TObject);
     procedure TogglePing(Sender: TObject);
+    procedure ConfigurationChanged(Sender: TObject);
+    procedure AdapterChanged(Sender: TObject);
+    procedure AutoFillMask(Sender: TObject);
     procedure SaveScriptConfiguration(Sender: TObject);
     procedure PreviewAction(Sender: TObject);
   private
@@ -100,7 +104,14 @@ type
     procedure SelectComboValue(ACombo: TComboBox; const AValue: String;
       AAdapterStyle: Boolean);
     function AdapterCommandName: String;
+    function SelectedAdapterIsWifi: Boolean;
+    procedure UpdateWifiAvailability;
     procedure UpdateBatScrollBars;
+    function ParseIPv4(const S: String; out A, B, C, D: Integer): Boolean;
+    function IsValidIPv4(const S: String): Boolean;
+    function IsValidSubnetMask(const S: String): Boolean;
+    function ValidateConfiguration: Boolean;
+    procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
     function ScriptNodePath(ANode: TTreeNode): String;
@@ -109,6 +120,11 @@ type
     procedure LoadExpandedFolders(AList: TStrings);
     procedure SaveExpandedFolders;
     function IsScriptNode(ANode: TTreeNode): Boolean;
+    function IsFolderNode(ANode: TTreeNode): Boolean;
+    function NormalizedScriptName(const AName: String): String;
+    function IsValidScriptName(const AName: String): Boolean;
+    function SelectedDestinationDirectory: String;
+    procedure SelectScriptInTree(const AFileName: String);
     procedure AddSidebarDirectory(const ADirectory: String; AParent: TTreeNode);
     procedure RefreshSidebarScripts;
     function CountBatFiles(const ADirectory: String): Integer;
@@ -264,6 +280,7 @@ begin
   ToggleAutomatic(nil);
   ToggleWifi(nil);
   TogglePing(nil);
+  AdapterChanged(nil);
 
   FScriptsPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'scripts';
   FIniPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'LaguNETbi.ini';
@@ -276,9 +293,11 @@ begin
   FQuickForm := TQuickForm.CreatePopup(Self);
   FQuickForm.RefreshScripts(FScriptsPath);
 
+  NameEdit.Enabled := False;
   DescriptionEdit.Enabled := False;
   CreateScriptImages;
   RefreshSidebarScripts;
+  UpdateValidationUI;
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
@@ -543,6 +562,36 @@ begin
     Result := Trim(Copy(Result, 1, P - 1));
 end;
 
+function TForm1.SelectedAdapterIsWifi: Boolean;
+var
+  S: String;
+begin
+  { Temporal hasta enumerar adaptadores reales:
+    con la enumeracion de Windows esta funcion usara el tipo real. }
+  S := LowerCase(AdapterCommandName);
+  Result :=
+    (Pos('wi-fi', S) > 0) or
+    (Pos('wifi', S) > 0) or
+    (Pos('wireless', S) > 0);
+end;
+
+procedure TForm1.UpdateWifiAvailability;
+var
+  WifiAvailable: Boolean;
+begin
+  WifiAvailable := (Trim(Adapter.Text) <> '') and SelectedAdapterIsWifi;
+
+  if not WifiAvailable then
+    WifiBox.Checked := False;
+
+  WifiBox.Enabled := WifiAvailable;
+  WifiCombo.Enabled := WifiAvailable and WifiBox.Checked;
+
+  if not WifiAvailable then
+    WifiCombo.Color := clWindow;
+end;
+
+
 procedure TForm1.UpdateBatScrollBars;
 var
   I, MaxWidth, LineHeight, VisibleLines, W: Integer;
@@ -585,6 +634,201 @@ begin
   Windows.ShowScrollBar(BatMemo.Handle, SB_HORZ, NeedHorz);
 end;
 
+function TForm1.ParseIPv4(const S: String;
+  out A, B, C, D: Integer): Boolean;
+var
+  Parts: TStringList;
+  I, V: Integer;
+begin
+  Result := False;
+  A := 0;
+  B := 0;
+  C := 0;
+  D := 0;
+
+  Parts := TStringList.Create;
+  try
+    Parts.StrictDelimiter := True;
+    Parts.Delimiter := '.';
+    Parts.DelimitedText := Trim(S);
+
+    if Parts.Count <> 4 then
+      Exit;
+
+    for I := 0 to 3 do
+    begin
+      if (Parts[I] = '') or not TryStrToInt(Parts[I], V) then
+        Exit;
+      if (V < 0) or (V > 255) then
+        Exit;
+
+      case I of
+        0: A := V;
+        1: B := V;
+        2: C := V;
+        3: D := V;
+      end;
+    end;
+
+    Result := True;
+  finally
+    Parts.Free;
+  end;
+end;
+
+function TForm1.IsValidIPv4(const S: String): Boolean;
+var
+  A, B, C, D: Integer;
+begin
+  Result := ParseIPv4(S, A, B, C, D);
+end;
+
+function TForm1.IsValidSubnetMask(const S: String): Boolean;
+var
+  A, B, C, D, I, V: Integer;
+  Octets: array[0..3] of Integer;
+  MustBeZero: Boolean;
+begin
+  Result := False;
+
+  if not ParseIPv4(S, A, B, C, D) then
+    Exit;
+
+  Octets[0] := A;
+  Octets[1] := B;
+  Octets[2] := C;
+  Octets[3] := D;
+  MustBeZero := False;
+
+  for I := 0 to 3 do
+  begin
+    V := Octets[I];
+
+    if MustBeZero then
+    begin
+      if V <> 0 then
+        Exit;
+      Continue;
+    end;
+
+    case V of
+      255:
+        ;
+      254, 252, 248, 240, 224, 192, 128, 0:
+        MustBeZero := True;
+    else
+      Exit;
+    end;
+  end;
+
+  Result := True;
+end;
+
+function TForm1.ValidateConfiguration: Boolean;
+var
+  AdapterOK, AddressOK, MaskOK, GatewayOK, WifiOK, PingOK: Boolean;
+begin
+  AdapterOK := Trim(Adapter.Text) <> '';
+
+  if AutomaticBox.Checked then
+  begin
+    AddressOK := True;
+    MaskOK := True;
+    GatewayOK := True;
+  end
+  else
+  begin
+    AddressOK := IsValidIPv4(AddressEdit.Text);
+    MaskOK := IsValidSubnetMask(MaskEdit.Text);
+    GatewayOK := (Trim(GatewayEdit.Text) = '') or
+      IsValidIPv4(GatewayEdit.Text);
+  end;
+
+  WifiOK := (not WifiBox.Enabled) or (not WifiBox.Checked) or
+    ((Trim(WifiCombo.Text) <> '') and
+     (not SameText(Trim(WifiCombo.Text), 'Sin seleccionar')));
+
+  PingOK := (not PingBox.Checked) or IsValidIPv4(PingEdit.Text);
+
+  Result := AdapterOK and AddressOK and MaskOK and GatewayOK and
+    WifiOK and PingOK;
+end;
+
+procedure TForm1.UpdateValidationUI;
+const
+  InvalidColor = TColor($00D0D0FF);
+var
+  AdapterOK, AddressOK, MaskOK, GatewayOK, WifiOK, PingOK: Boolean;
+  ConfigOK, NameOK, HasDestination: Boolean;
+begin
+  AdapterOK := Trim(Adapter.Text) <> '';
+
+  if AutomaticBox.Checked then
+  begin
+    AddressOK := True;
+    MaskOK := True;
+    GatewayOK := True;
+  end
+  else
+  begin
+    AddressOK := IsValidIPv4(AddressEdit.Text);
+    MaskOK := IsValidSubnetMask(MaskEdit.Text);
+    GatewayOK := (Trim(GatewayEdit.Text) = '') or
+      IsValidIPv4(GatewayEdit.Text);
+  end;
+
+  WifiOK := (not WifiBox.Enabled) or (not WifiBox.Checked) or
+    ((Trim(WifiCombo.Text) <> '') and
+     (not SameText(Trim(WifiCombo.Text), 'Sin seleccionar')));
+
+  PingOK := (not PingBox.Checked) or IsValidIPv4(PingEdit.Text);
+
+  if AdapterOK then
+    Adapter.Color := clWindow
+  else
+    Adapter.Color := InvalidColor;
+
+  if AutomaticBox.Checked or AddressOK then
+    AddressEdit.Color := clWindow
+  else
+    AddressEdit.Color := InvalidColor;
+
+  if AutomaticBox.Checked or MaskOK then
+    MaskEdit.Color := clWindow
+  else
+    MaskEdit.Color := InvalidColor;
+
+  if AutomaticBox.Checked or GatewayOK then
+    GatewayEdit.Color := clWindow
+  else
+    GatewayEdit.Color := InvalidColor;
+
+  if (not WifiBox.Checked) or WifiOK then
+    WifiCombo.Color := clWindow
+  else
+    WifiCombo.Color := InvalidColor;
+
+  if (not PingBox.Checked) or PingOK then
+    PingEdit.Color := clWindow
+  else
+    PingEdit.Color := InvalidColor;
+
+  ConfigOK := AdapterOK and AddressOK and MaskOK and GatewayOK and
+    WifiOK and PingOK;
+
+  NameOK := IsValidScriptName(NameEdit.Text);
+  HasDestination := IsScriptNode(ScriptTree.Selected) or
+    IsFolderNode(ScriptTree.Selected);
+
+  if (not NameEdit.Enabled) or NameOK then
+    NameEdit.Color := clWindow
+  else
+    NameEdit.Color := InvalidColor;
+
+  SaveButton.Enabled := ConfigOK and NameOK and HasDestination;
+  ApplyButton.Enabled := ConfigOK;
+end;
+
 procedure TForm1.LoadScriptConfiguration(const AFileName: String);
 var
   Lines: TStringList;
@@ -600,6 +844,9 @@ begin
       StatusLabel.Caption := 'No se pudo leer ' + ExtractFileName(AFileName);
       Exit;
     end;
+
+    NameEdit.Enabled := True;
+    NameEdit.Text := ChangeFileExt(ExtractFileName(AFileName), '');
 
     { Siempre mostramos lo que acaba de leerse del archivo real. }
     BatMemo.Lines.Assign(Lines);
@@ -666,6 +913,8 @@ begin
     ToggleAutomatic(nil);
     ToggleWifi(nil);
     TogglePing(nil);
+    AdapterChanged(nil);
+    UpdateValidationUI;
   finally
     Lines.Free;
   end;
@@ -785,6 +1034,106 @@ begin
     SameText(ExtractFileExt(ANode.Text), '.bat') and
     FileExists(ScriptNodePath(ANode));
 end;
+
+function TForm1.IsFolderNode(ANode: TTreeNode): Boolean;
+begin
+  Result := Assigned(ANode) and DirectoryExists(ScriptNodePath(ANode));
+end;
+
+function TForm1.NormalizedScriptName(const AName: String): String;
+begin
+  Result := Trim(AName);
+
+  if SameText(ExtractFileExt(Result), '.bat') then
+    Result := ChangeFileExt(Result, '');
+
+  Result := Trim(Result);
+end;
+
+function TForm1.IsValidScriptName(const AName: String): Boolean;
+var
+  S, DeviceBase: String;
+  I, P: Integer;
+begin
+  Result := False;
+  S := NormalizedScriptName(AName);
+
+  if S = '' then
+    Exit;
+
+  if (S = '.') or (S = '..') then
+    Exit;
+
+  if (S[Length(S)] = '.') or (S[Length(S)] = ' ') then
+    Exit;
+
+  for I := 1 to Length(S) do
+  begin
+    if Ord(S[I]) < 32 then
+      Exit;
+
+    if S[I] in ['\', '/', ':', '*', '?', '"', '<', '>', '|'] then
+      Exit;
+  end;
+
+  DeviceBase := UpperCase(S);
+  P := Pos('.', DeviceBase);
+  if P > 0 then
+    DeviceBase := Copy(DeviceBase, 1, P - 1);
+
+  if (DeviceBase = 'CON') or
+     (DeviceBase = 'PRN') or
+     (DeviceBase = 'AUX') or
+     (DeviceBase = 'NUL') or
+     (DeviceBase = 'CLOCK$') then
+    Exit;
+
+  if (Length(DeviceBase) = 4) and
+     ((Copy(DeviceBase, 1, 3) = 'COM') or
+      (Copy(DeviceBase, 1, 3) = 'LPT')) and
+     (DeviceBase[4] in ['1'..'9']) then
+    Exit;
+
+  Result := True;
+end;
+
+function TForm1.SelectedDestinationDirectory: String;
+var
+  P: String;
+begin
+  Result := '';
+
+  if IsScriptNode(ScriptTree.Selected) then
+  begin
+    P := ScriptNodePath(ScriptTree.Selected);
+    Result := ExtractFileDir(P);
+  end
+  else if IsFolderNode(ScriptTree.Selected) then
+    Result := ScriptNodePath(ScriptTree.Selected);
+end;
+
+procedure TForm1.SelectScriptInTree(const AFileName: String);
+var
+  I: Integer;
+  Node: TTreeNode;
+  Wanted: String;
+begin
+  Wanted := ExpandFileName(AFileName);
+
+  for I := 0 to ScriptTree.Items.Count - 1 do
+  begin
+    Node := ScriptTree.Items[I];
+
+    if IsScriptNode(Node) and
+      SameText(ExpandFileName(ScriptNodePath(Node)), Wanted) then
+    begin
+      ScriptTree.Selected := Node;
+      Node.MakeVisible;
+      Exit;
+    end;
+  end;
+end;
+
 
 procedure TForm1.AddSidebarDirectory(const ADirectory: String; AParent: TTreeNode);
 var
@@ -908,19 +1257,36 @@ procedure TForm1.ScriptTreeClick(Sender: TObject);
 var
   ScriptPath: String;
 begin
-  if not IsScriptNode(ScriptTree.Selected) then
+  if IsScriptNode(ScriptTree.Selected) then
   begin
-    DescriptionEdit.Text := '';
-    DescriptionEdit.Enabled := False;
-    BatMemo.Clear;
-    UpdateBatScrollBars;
+    ScriptPath := ScriptNodePath(ScriptTree.Selected);
+    NameEdit.Enabled := True;
+    LoadScriptConfiguration(ScriptPath);
+    StatusLabel.Caption := 'Script cargado: ' + ScriptTree.Selected.Text;
     Exit;
   end;
 
-  ScriptPath := ScriptNodePath(ScriptTree.Selected);
-  ProfileTitle.Caption := ChangeFileExt(ScriptTree.Selected.Text, '');
-  LoadScriptConfiguration(ScriptPath);
-  StatusLabel.Caption := 'Script cargado: ' + ScriptTree.Selected.Text;
+  if IsFolderNode(ScriptTree.Selected) then
+  begin
+    { Modo nuevo script: conservamos la configuracion de red actual. }
+    NameEdit.Enabled := True;
+    NameEdit.Text := '';
+    DescriptionEdit.Enabled := True;
+    DescriptionEdit.Text := '';
+    BatMemo.Clear;
+    UpdateBatScrollBars;
+    StatusLabel.Caption := 'Nuevo script en: ' + ScriptTree.Selected.Text;
+    UpdateValidationUI;
+    Exit;
+  end;
+
+  NameEdit.Text := '';
+  NameEdit.Enabled := False;
+  DescriptionEdit.Text := '';
+  DescriptionEdit.Enabled := False;
+  BatMemo.Clear;
+  UpdateBatScrollBars;
+  UpdateValidationUI;
 end;
 
 procedure TForm1.ScriptTreeMouseMove(Sender: TObject; Shift: TShiftState;
@@ -1087,105 +1453,156 @@ begin
   AddressEdit.Enabled := not AutomaticBox.Checked;
   MaskEdit.Enabled := not AutomaticBox.Checked;
   GatewayEdit.Enabled := not AutomaticBox.Checked;
+  UpdateValidationUI;
 end;
 
 procedure TForm1.ToggleWifi(Sender: TObject);
 begin
-  WifiCombo.Enabled := WifiBox.Checked;
+  UpdateWifiAvailability;
+  UpdateValidationUI;
 end;
 
 procedure TForm1.TogglePing(Sender: TObject);
 begin
   PingEdit.Enabled := PingBox.Checked;
+  UpdateValidationUI;
+end;
+
+procedure TForm1.ConfigurationChanged(Sender: TObject);
+begin
+  UpdateValidationUI;
+end;
+
+procedure TForm1.AdapterChanged(Sender: TObject);
+begin
+  UpdateWifiAvailability;
+  UpdateValidationUI;
+end;
+
+procedure TForm1.AutoFillMask(Sender: TObject);
+begin
+  { Es solo un valor por defecto practico, no una mascara calculada. }
+  if AutomaticBox.Checked then
+    Exit;
+
+  if Trim(MaskEdit.Text) <> '' then
+    Exit;
+
+  if not IsValidIPv4(AddressEdit.Text) then
+    Exit;
+
+  MaskEdit.Text := '255.255.255.0';
+  UpdateValidationUI;
 end;
 
 procedure TForm1.SaveScriptConfiguration(Sender: TObject);
 var
-  ScriptPath, Description, AddressLine, WifiLine, PingLine: String;
-  AdapterName, S, L: String;
+  SourcePath, TargetPath, DestinationDir, Description, ScriptName: String;
+  AddressLine, WifiLine, PingLine: String;
+  AdapterName, S, L, GatewayValue: String;
   Lines, Output: TStringList;
   I: Integer;
-  HasAddress, HasWifi, HasPing: Boolean;
   AddressDone, WifiDone, PingDone, DescriptionDone: Boolean;
+  EditingExisting, ReplacingOther: Boolean;
 begin
-  if not IsScriptNode(ScriptTree.Selected) then
+  UpdateValidationUI;
+
+  if not ValidateConfiguration then
+    Exit;
+
+  if not IsValidScriptName(NameEdit.Text) then
+    Exit;
+
+  if not (IsScriptNode(ScriptTree.Selected) or
+    IsFolderNode(ScriptTree.Selected)) then
   begin
-    MessageDlg('Selecciona primero un script .bat.',
+    MessageDlg('Selecciona un script o una carpeta.',
       mtInformation, [mbOK], 0);
     Exit;
   end;
 
-  ScriptPath := ScriptNodePath(ScriptTree.Selected);
+  ScriptName := NormalizedScriptName(NameEdit.Text);
+  DestinationDir := SelectedDestinationDirectory;
+
+  if DestinationDir = '' then
+  begin
+    MessageDlg('No se pudo determinar la carpeta de destino.',
+      mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  TargetPath := IncludeTrailingPathDelimiter(DestinationDir) +
+    ScriptName + '.bat';
+
+  EditingExisting := IsScriptNode(ScriptTree.Selected);
+  if EditingExisting then
+    SourcePath := ScriptNodePath(ScriptTree.Selected)
+  else
+    SourcePath := '';
+
+  ReplacingOther := FileExists(TargetPath) and
+    ((SourcePath = '') or
+     (not SameText(ExpandFileName(SourcePath), ExpandFileName(TargetPath))));
+
+  if ReplacingOther then
+  begin
+    if MessageDlg(
+      'Ya existe "' + ExtractFileName(TargetPath) + '".' + LineEnding +
+      '¿Quieres reemplazarlo?',
+      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+      Exit;
+  end;
+
+  AdapterName := AdapterCommandName;
   Description := Trim(DescriptionEdit.Text);
+  GatewayValue := Trim(GatewayEdit.Text);
+
+  if AdapterName = '' then
+  begin
+    MessageDlg('Selecciona un adaptador de red.',
+      mtInformation, [mbOK], 0);
+    Exit;
+  end;
+
+  if AutomaticBox.Checked then
+    AddressLine := 'netsh interface ipv4 set address name="' +
+      AdapterName + '" source=dhcp'
+  else
+  begin
+    AddressLine := 'netsh interface ipv4 set address name="' +
+      AdapterName + '" static ' + Trim(AddressEdit.Text) + ' ' +
+      Trim(MaskEdit.Text);
+
+    if GatewayValue <> '' then
+      AddressLine := AddressLine + ' ' + GatewayValue;
+  end;
+
+  if WifiBox.Enabled and WifiBox.Checked then
+    WifiLine := 'netsh wlan connect name ="' + Trim(WifiCombo.Text) +
+      '" ssid ="' + Trim(WifiCombo.Text) + '"'
+  else
+    WifiLine := '';
+
+  if PingBox.Checked then
+    PingLine := ':: testPing=' + Trim(PingEdit.Text)
+  else
+    PingLine := '';
 
   Lines := TStringList.Create;
   Output := TStringList.Create;
   try
-    try
-      Lines.LoadFromFile(ScriptPath);
-    except
-      MessageDlg('No se pudo leer el script antes de guardarlo.',
-        mtError, [mbOK], 0);
-      Exit;
-    end;
-
-    HasAddress := False;
-    HasWifi := False;
-    HasPing := False;
-
-    for I := 0 to Lines.Count - 1 do
+    if EditingExisting then
     begin
-      S := Trim(Lines[I]);
-      L := LowerCase(S);
-
-      if Pos('netsh interface ipv4 set address', L) > 0 then
-        HasAddress := True
-      else if (Pos('netsh wlan connect', L) > 0) or
-        SameText(S, ':: No conectar') then
-        HasWifi := True
-      else if (Pos(':: testping=', L) = 1) or
-        SameText(S, ':: No test Ping') then
-        HasPing := True;
-    end;
-
-    { Solo actualizamos clases de linea ya presentes.
-      Las lineas personalizadas se conservan. }
-    if HasAddress then
-    begin
-      AdapterName := AdapterCommandName;
-      if AdapterName = '' then
-      begin
-        MessageDlg(
-          'El script tiene configuracion IP, pero no hay adaptador seleccionado.',
-          mtInformation, [mbOK], 0);
+      try
+        Lines.LoadFromFile(SourcePath);
+      except
+        MessageDlg('No se pudo leer el script antes de guardarlo.',
+          mtError, [mbOK], 0);
         Exit;
       end;
-
-      if AutomaticBox.Checked then
-        AddressLine := 'netsh interface ipv4 set address name="' +
-          AdapterName + '" source=dhcp'
-      else
-        AddressLine := 'netsh interface ipv4 set address name="' +
-          AdapterName + '" static ' + Trim(AddressEdit.Text) + ' ' +
-          Trim(MaskEdit.Text) + ' ' + Trim(GatewayEdit.Text);
-    end;
-
-    if HasWifi then
-    begin
-      if WifiBox.Checked and (Trim(WifiCombo.Text) <> '') then
-        WifiLine := 'netsh wlan connect name ="' + Trim(WifiCombo.Text) +
-          '" ssid ="' + Trim(WifiCombo.Text) + '"'
-      else
-        WifiLine := ':: No conectar';
-    end;
-
-    if HasPing then
-    begin
-      if PingBox.Checked and (Trim(PingEdit.Text) <> '') then
-        PingLine := ':: testPing=' + Trim(PingEdit.Text)
-      else
-        PingLine := ':: No test Ping';
-    end;
+    end
+    else
+      Lines.Clear;
 
     AddressDone := False;
     WifiDone := False;
@@ -1199,16 +1616,11 @@ begin
 
       if Pos(':: description=', L) = 1 then
       begin
-        if not DescriptionDone then
-        begin
-          if Description <> '' then
-            Output.Add(':: description=' + Description);
-          DescriptionDone := True;
-        end;
+        DescriptionDone := True;
         Continue;
       end;
 
-      if HasAddress and (not AddressDone) and
+      if (not AddressDone) and
         (Pos('netsh interface ipv4 set address', L) > 0) then
       begin
         Output.Add(AddressLine);
@@ -1216,32 +1628,44 @@ begin
         Continue;
       end;
 
-      if HasWifi and (not WifiDone) and
+      if (not WifiDone) and
         ((Pos('netsh wlan connect', L) > 0) or
          SameText(Trim(S), ':: No conectar')) then
       begin
-        Output.Add(WifiLine);
+        if WifiLine <> '' then
+          Output.Add(WifiLine);
         WifiDone := True;
         Continue;
       end;
 
-      if HasPing and (not PingDone) and
-        ((Pos(':: testping=', L) = 1) or
-         SameText(Trim(S), ':: No test Ping')) then
+      if (Pos(':: testping=', L) = 1) or
+        SameText(Trim(S), ':: No test Ping') then
       begin
-        Output.Add(PingLine);
         PingDone := True;
         Continue;
       end;
 
+      { Lineas custom: se conservan al editar/renombrar un BAT existente. }
       Output.Add(S);
     end;
 
-    if not DescriptionDone and (Description <> '') then
+    if not AddressDone then
+      Output.Add(AddressLine);
+
+    if (not WifiDone) and (WifiLine <> '') then
+      Output.Add(WifiLine);
+
+    { Metadatos LaguNETbi: siempre arriba.
+      Insertamos testPing primero y description despues en posicion 0
+      para que el orden final sea description -> testPing. }
+    if PingLine <> '' then
+      Output.Insert(0, PingLine);
+
+    if Description <> '' then
       Output.Insert(0, ':: description=' + Description);
 
     try
-      Output.SaveToFile(ScriptPath);
+      Output.SaveToFile(TargetPath);
     except
       MessageDlg('No se pudo guardar el script.',
         mtError, [mbOK], 0);
@@ -1252,16 +1676,38 @@ begin
     Lines.Free;
   end;
 
-  SetCachedScriptDescription(ScriptPath, Description);
+  { Si era un renombrado, eliminamos el archivo con el nombre anterior
+    solo despues de haber guardado correctamente el nuevo. }
+  if EditingExisting and
+    (not SameText(ExpandFileName(SourcePath), ExpandFileName(TargetPath))) then
+  begin
+    if FileExists(SourcePath) and (not DeleteFile(SourcePath)) then
+    begin
+      MessageDlg(
+        'El nuevo script se guardo correctamente, pero no se pudo eliminar ' +
+        'el archivo con el nombre anterior.' + LineEnding +
+        'Revisa ambos archivos antes de continuar.',
+        mtWarning, [mbOK], 0);
+    end;
+  end;
 
-  { Releer: el cuadro inferior nunca es una preview artificial. }
-  LoadScriptConfiguration(ScriptPath);
-  StatusLabel.Caption := 'Guardado: ' + ExtractFileName(ScriptPath);
+  RefreshSidebarScripts;
+  SelectScriptInTree(TargetPath);
+
+  if FileExists(TargetPath) then
+    LoadScriptConfiguration(TargetPath);
+
+  UpdateValidationUI;
+  StatusLabel.Caption := 'Guardado: ' + ExtractFileName(TargetPath);
 end;
 
 procedure TForm1.PreviewAction(Sender: TObject);
 begin
-  StatusLabel.Caption := 'Simulacion completada. Sin cambios en tu red.';
+  UpdateValidationUI;
+  if not ValidateConfiguration then
+    Exit;
+
+  StatusLabel.Caption := 'Configuracion valida. Todavia no se ejecuta ningun comando.';
 end;
 
 end.
