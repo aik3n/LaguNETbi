@@ -193,6 +193,76 @@ begin
   end;
 end;
 
+function LaguNETbiPowerShellPath: String;
+var
+  WindowsDir: String;
+begin
+  Result := '';
+  WindowsDir := GetEnvironmentVariable('WINDIR');
+
+  if WindowsDir = '' then
+    Exit;
+
+  Result :=
+    IncludeTrailingPathDelimiter(WindowsDir) +
+    'Sysnative\WindowsPowerShell\v1.0\powershell.exe';
+
+  if FileExists(Result) then
+    Exit;
+
+  Result :=
+    IncludeTrailingPathDelimiter(WindowsDir) +
+    'System32\WindowsPowerShell\v1.0\powershell.exe';
+
+  if not FileExists(Result) then
+    Result := '';
+end;
+
+function LaguNETbiAllowTaskOnBattery: Boolean;
+var
+  P: TProcess;
+  PowerShellPath: String;
+  CommandText: String;
+begin
+  Result := False;
+
+  PowerShellPath := LaguNETbiPowerShellPath;
+  if PowerShellPath = '' then
+    Exit;
+
+  CommandText :=
+    '$ErrorActionPreference = ''Stop''; ' +
+    'Import-Module ScheduledTasks -ErrorAction Stop; ' +
+    '$task = Get-ScheduledTask -TaskName ''LaguNETbi'' ' +
+      '-TaskPath ''\'' -ErrorAction Stop; ' +
+    '$settings = $task.Settings; ' +
+    '$settings.DisallowStartIfOnBatteries = $false; ' +
+    '$settings.StopIfGoingOnBatteries = $false; ' +
+    'Set-ScheduledTask -TaskName ''LaguNETbi'' -TaskPath ''\'' ' +
+      '-Settings $settings -ErrorAction Stop | Out-Null;';
+
+  P := TProcess.Create(nil);
+  try
+    P.Executable := PowerShellPath;
+    P.Options := [poWaitOnExit, poNoConsole];
+    P.Parameters.Add('-NoProfile');
+    P.Parameters.Add('-NonInteractive');
+    P.Parameters.Add('-ExecutionPolicy');
+    P.Parameters.Add('Bypass');
+    P.Parameters.Add('-Command');
+    P.Parameters.Add(CommandText);
+
+    try
+      P.Execute;
+      Result := P.ExitStatus = 0;
+    except
+      Result := False;
+    end;
+  finally
+    P.Free;
+  end;
+end;
+
 function LaguNETbiSetStartupTask(AEnable: Boolean): Boolean;
 var
   Args: TStringList;
@@ -232,7 +302,24 @@ begin
     end;
 
     if LaguNETbiRunProcess(TaskExe, Args, ExitCode) then
+    begin
       Result := ExitCode = 0;
+
+      if AEnable and Result then
+      begin
+        Result := LaguNETbiAllowTaskOnBattery;
+
+        if not Result then
+        begin
+          Args.Clear;
+          Args.Add('/Delete');
+          Args.Add('/TN');
+          Args.Add('LaguNETbi');
+          Args.Add('/F');
+          LaguNETbiRunProcess(TaskExe, Args, ExitCode);
+        end;
+      end;
+    end;
   finally
     Args.Free;
   end;
