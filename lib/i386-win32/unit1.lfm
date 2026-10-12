@@ -63,7 +63,7 @@ object Form1: TForm1
       Width = 216
       Height = 478
       BorderStyle = bsNone
-      Color = 15986170
+      Color = clWhite
       Font.Color = 3350804
       Font.Size = 11
       ParentFont = False

@@ -2540,21 +2540,23 @@ begin
         Continue;
       end;
 
-      if (not AddressDone) and
-        (Pos('netsh interface ipv4 set address', L) > 0) then
+      if Pos('netsh interface ipv4 set address', L) > 0 then
       begin
-        Output.Add(AddressLine);
+        if not AddressDone then
+          Output.Add(AddressLine);
         AddressDone := True;
         Continue;
       end;
 
-      if (not WifiDone) and
-        ((Pos('netsh wlan connect', L) > 0) or
-         SameText(Trim(S), ':: No conectar')) then
+      if (Pos('netsh wlan connect', L) > 0) or
+        SameText(Trim(S), ':: No conectar') then
       begin
-        if WifiLine <> '' then
-          Output.Add(WifiLine);
-        WifiDone := True;
+        if not WifiDone then
+        begin
+          if WifiLine <> '' then
+            Output.Add(WifiLine);
+          WifiDone := True;
+        end;
         Continue;
       end;
 
