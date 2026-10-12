@@ -16,6 +16,27 @@ uses
 {$R *.res}
 
 begin
+  if (ParamCount = 1) and
+     (ParamStr(1) = '--lagunetbi-startup-enable') then
+  begin
+    if LaguNETbiSetStartupTask(True) then
+      Halt(0)
+    else
+      Halt(1);
+  end;
+
+  if (ParamCount = 1) and
+     (ParamStr(1) = '--lagunetbi-startup-disable') then
+  begin
+    if LaguNETbiSetStartupTask(False) then
+      Halt(0)
+    else
+      Halt(1);
+  end;
+
+  if not PrepareLaguNETbiStartup then
+    Halt(0);
+
   RequireDerivedFormResource:=True;
   Application.Scaled:=False;
   {$PUSH}{$WARN 5044 OFF}

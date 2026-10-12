@@ -11,7 +11,7 @@
       <UseXPManifest Value="True"/>
       <XPManifest>
         <DpiAware Value="False"/>
-      </XPManifest>
+</XPManifest>
       <Icon Value="0"/>
     </General>
     <BuildModes>

@@ -5,7 +5,7 @@ unit Unit1;
 interface
 
 uses
-  Windows, ShellApi, Classes, SysUtils, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList;
+  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList;
 
 type
   PIPAddressString = ^TIPAddressString;
@@ -80,6 +80,18 @@ type
     procedure ShowNearTray;
   end;
 
+  TAboutForm = class(TForm)
+  private
+    FStartupCheck: TCheckBox;
+    FStartupStatus: TLabel;
+    FUpdating: Boolean;
+    procedure StartupChanged(Sender: TObject);
+    procedure OpenRepository(Sender: TObject);
+    procedure RefreshStartupState;
+  public
+    constructor CreateHelp(AOwner: TComponent);
+  end;
+
   TForm1 = class(TForm)
     BrandLabel: TLabel;
     TaglineLabel: TLabel;
@@ -147,6 +159,7 @@ type
     procedure AutoFillMask(Sender: TObject);
     procedure SaveScriptConfiguration(Sender: TObject);
     procedure PreviewAction(Sender: TObject);
+    procedure ShowHelp(Sender: TObject);
   private
     FExiting: Boolean;
     FTrayReady: Boolean;
@@ -158,6 +171,7 @@ type
     FOpenLocationMenuItem: TMenuItem;
     FScriptImages: TImageList;
     FBrandImage: TImage;
+    FHelpButton: TButton;
     FIniPath: String;
     FDescriptionPaths: TStringList;
     FDescriptionTexts: TStringList;
@@ -186,6 +200,7 @@ type
     function IsValidIPv4(const S: String): Boolean;
     function IsValidSubnetMask(const S: String): Boolean;
     function ValidateConfiguration: Boolean;
+    function ExecuteIPv4Configuration(out AError: String): Boolean;
     procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
@@ -208,9 +223,427 @@ type
 var
   Form1: TForm1;
 
+function PrepareLaguNETbiStartup: Boolean;
+function LaguNETbiStartupTaskExists: Boolean;
+function LaguNETbiSetStartupTask(AEnable: Boolean): Boolean;
+
 implementation
 
 {$R *.lfm}
+
+
+type
+  TLaguNETbiTokenElevation = record
+    TokenIsElevated: DWORD;
+  end;
+
+const
+  TOKEN_QUERY_LAGUNET = $0008;
+  TOKEN_ELEVATION_CLASS_LAGUNET = 20;
+
+function LaguNETbiOpenProcessToken(
+  ProcessHandle: THandle;
+  DesiredAccess: DWORD;
+  var TokenHandle: THandle
+): BOOL; stdcall; external 'advapi32.dll' name 'OpenProcessToken';
+
+function LaguNETbiGetTokenInformation(
+  TokenHandle: THandle;
+  TokenInformationClass: DWORD;
+  TokenInformation: Pointer;
+  TokenInformationLength: DWORD;
+  var ReturnLength: DWORD
+): BOOL; stdcall; external 'advapi32.dll' name 'GetTokenInformation';
+
+function LaguNETbiIsElevated: Boolean;
+var
+  TokenHandle: THandle;
+  Elevation: TLaguNETbiTokenElevation;
+  ReturnLength: DWORD;
+begin
+  Result := False;
+  TokenHandle := 0;
+
+  if not LaguNETbiOpenProcessToken(
+    GetCurrentProcess,
+    TOKEN_QUERY_LAGUNET,
+    TokenHandle
+  ) then
+    Exit;
+
+  try
+    FillChar(Elevation, SizeOf(Elevation), 0);
+    ReturnLength := 0;
+
+    if LaguNETbiGetTokenInformation(
+      TokenHandle,
+      TOKEN_ELEVATION_CLASS_LAGUNET,
+      @Elevation,
+      SizeOf(Elevation),
+      ReturnLength
+    ) then
+      Result := Elevation.TokenIsElevated <> 0;
+  finally
+    CloseHandle(TokenHandle);
+  end;
+end;
+
+function LaguNETbiNetshPath: String;
+var
+  Buffer: array[0..MAX_PATH] of WideChar;
+  N: UINT;
+begin
+  Result := '';
+  FillChar(Buffer, SizeOf(Buffer), 0);
+
+  N := GetSystemDirectoryW(@Buffer[0], MAX_PATH);
+  if (N = 0) or (N >= MAX_PATH) then
+    Exit;
+
+  Result := UTF8Encode(UnicodeString(PWideChar(@Buffer[0])));
+  Result := IncludeTrailingPathDelimiter(Result) + 'netsh.exe';
+end;
+
+function StartLaguNETbiScheduledTask: Boolean;
+var
+  P: TProcess;
+  SchTasksPath: String;
+begin
+  Result := False;
+
+  SchTasksPath := IncludeTrailingPathDelimiter(
+    ExtractFileDir(LaguNETbiNetshPath)
+  ) + 'schtasks.exe';
+
+  if not FileExists(SchTasksPath) then
+    Exit;
+
+  P := TProcess.Create(nil);
+  try
+    P.Executable := SchTasksPath;
+    P.Options := [poWaitOnExit, poNoConsole];
+    P.Parameters.Add('/Run');
+    P.Parameters.Add('/TN');
+    P.Parameters.Add('LaguNETbi');
+
+    try
+      P.Execute;
+      Result := P.ExitStatus = 0;
+    except
+      Result := False;
+    end;
+  finally
+    P.Free;
+  end;
+end;
+
+
+function LaguNETbiSchtasksPath: String;
+begin
+  Result := IncludeTrailingPathDelimiter(
+    ExtractFileDir(LaguNETbiNetshPath)
+  ) + 'schtasks.exe';
+end;
+
+function LaguNETbiRunProcess(
+  const AExecutable: String;
+  AParameters: TStrings;
+  out AExitCode: LongInt
+): Boolean;
+var
+  P: TProcess;
+begin
+  Result := False;
+  AExitCode := -1;
+
+  P := TProcess.Create(nil);
+  try
+    P.Executable := AExecutable;
+    P.Parameters.Assign(AParameters);
+    P.Options := [poWaitOnExit, poNoConsole];
+
+    try
+      P.Execute;
+    except
+      Exit;
+    end;
+
+    AExitCode := P.ExitStatus;
+    Result := True;
+  finally
+    P.Free;
+  end;
+end;
+
+function LaguNETbiStartupTaskExists: Boolean;
+var
+  Args: TStringList;
+  ExitCode: LongInt;
+  TaskExe: String;
+begin
+  Result := False;
+  TaskExe := LaguNETbiSchtasksPath;
+
+  if (TaskExe = '') or not FileExists(TaskExe) then
+    Exit;
+
+  Args := TStringList.Create;
+  try
+    Args.Add('/Query');
+    Args.Add('/TN');
+    Args.Add('LaguNETbi');
+
+    if LaguNETbiRunProcess(TaskExe, Args, ExitCode) then
+      Result := ExitCode = 0;
+  finally
+    Args.Free;
+  end;
+end;
+
+function LaguNETbiSetStartupTask(AEnable: Boolean): Boolean;
+var
+  Args: TStringList;
+  ExitCode: LongInt;
+  TaskExe, ExePath: String;
+begin
+  Result := False;
+  TaskExe := LaguNETbiSchtasksPath;
+
+  if (TaskExe = '') or not FileExists(TaskExe) then
+    Exit;
+
+  Args := TStringList.Create;
+  try
+    if AEnable then
+    begin
+      ExePath := ExpandFileName(ParamStr(0));
+
+      Args.Add('/Create');
+      Args.Add('/TN');
+      Args.Add('LaguNETbi');
+      Args.Add('/TR');
+      Args.Add(ExePath);
+      Args.Add('/SC');
+      Args.Add('ONLOGON');
+      Args.Add('/RL');
+      Args.Add('HIGHEST');
+      Args.Add('/IT');
+      Args.Add('/F');
+    end
+    else
+    begin
+      Args.Add('/Delete');
+      Args.Add('/TN');
+      Args.Add('LaguNETbi');
+      Args.Add('/F');
+    end;
+
+    if LaguNETbiRunProcess(TaskExe, Args, ExitCode) then
+      Result := ExitCode = 0;
+  finally
+    Args.Free;
+  end;
+end;
+
+function LaguNETbiRunElevatedSelf(
+  const AParameter: String;
+  out AError: String
+): Boolean;
+var
+  SEI: TShellExecuteInfoW;
+  VerbW, FileW, ParamsW: UnicodeString;
+  ExitCode: DWORD;
+  LastErr: DWORD;
+begin
+  Result := False;
+  AError := '';
+
+  VerbW := UnicodeString('runas');
+  FileW := UnicodeString(Application.ExeName);
+  ParamsW := UnicodeString(AParameter);
+
+  FillChar(SEI, SizeOf(SEI), 0);
+  SEI.cbSize := SizeOf(SEI);
+  SEI.fMask := SEE_MASK_NOCLOSEPROCESS;
+  SEI.lpVerb := PWideChar(VerbW);
+  SEI.lpFile := PWideChar(FileW);
+  SEI.lpParameters := PWideChar(ParamsW);
+  SEI.nShow := SW_HIDE;
+
+  if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
+  begin
+    LastErr := GetLastError;
+    if LastErr = ERROR_CANCELLED then
+      AError := 'Operacion cancelada.'
+    else
+      AError := 'Windows no pudo completar la operacion. ' +
+        SysErrorMessage(LastErr);
+    Exit;
+  end;
+
+  try
+    WaitForSingleObject(SEI.hProcess, INFINITE);
+
+    ExitCode := 1;
+    if not GetExitCodeProcess(SEI.hProcess, ExitCode) then
+    begin
+      AError := 'No se pudo obtener el resultado de la operacion.';
+      Exit;
+    end;
+
+    if ExitCode <> 0 then
+    begin
+      AError := 'No se pudo cambiar la opcion de inicio con Windows.';
+      Exit;
+    end;
+
+    Result := True;
+  finally
+    CloseHandle(SEI.hProcess);
+  end;
+end;
+
+function LaguNETbiChangeStartupTask(
+  AEnable: Boolean;
+  out AError: String
+): Boolean;
+var
+  Param: String;
+begin
+  AError := '';
+
+  if LaguNETbiIsElevated then
+  begin
+    Result := LaguNETbiSetStartupTask(AEnable);
+    if not Result then
+      AError := 'No se pudo modificar la tarea programada LaguNETbi.';
+    Exit;
+  end;
+
+  if AEnable then
+    Param := '--lagunetbi-startup-enable'
+  else
+    Param := '--lagunetbi-startup-disable';
+
+  Result := LaguNETbiRunElevatedSelf(Param, AError);
+end;
+
+function LaguNETbiQuoteArgument(const S: String): String;
+begin
+  Result := '"' + StringReplace(S, '"', '\"', [rfReplaceAll]) + '"';
+end;
+
+function LaguNETbiRunElevatedNetsh(
+  AParameters: TStrings;
+  out AError: String
+): Boolean;
+var
+  SEI: TShellExecuteInfoW;
+  VerbW, FileW, ParamsW: UnicodeString;
+  Params, NetshPath: String;
+  I: Integer;
+  ExitCode, LastErr: DWORD;
+begin
+  Result := False;
+  AError := '';
+
+  NetshPath := LaguNETbiNetshPath;
+  if (NetshPath = '') or not FileExists(NetshPath) then
+  begin
+    AError := 'No se encontro netsh.exe en System32.';
+    Exit;
+  end;
+
+  Params := '';
+  for I := 0 to AParameters.Count - 1 do
+  begin
+    if Params <> '' then
+      Params := Params + ' ';
+    Params := Params + LaguNETbiQuoteArgument(AParameters[I]);
+  end;
+
+  VerbW := UnicodeString('runas');
+  FileW := UnicodeString(NetshPath);
+  ParamsW := UnicodeString(Params);
+
+  FillChar(SEI, SizeOf(SEI), 0);
+  SEI.cbSize := SizeOf(SEI);
+  SEI.fMask := SEE_MASK_NOCLOSEPROCESS;
+  SEI.lpVerb := PWideChar(VerbW);
+  SEI.lpFile := PWideChar(FileW);
+  SEI.lpParameters := PWideChar(ParamsW);
+  SEI.nShow := SW_HIDE;
+
+  if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
+  begin
+    LastErr := GetLastError;
+    if LastErr = ERROR_CANCELLED then
+      AError := 'Operacion cancelada: no se concedieron permisos.'
+    else
+      AError := 'No se pudo iniciar netsh.exe. ' +
+        SysErrorMessage(LastErr);
+    Exit;
+  end;
+
+  try
+    WaitForSingleObject(SEI.hProcess, INFINITE);
+
+    ExitCode := 1;
+    if not GetExitCodeProcess(SEI.hProcess, ExitCode) then
+    begin
+      AError := 'No se pudo obtener el resultado de netsh.exe.';
+      Exit;
+    end;
+
+    if ExitCode <> 0 then
+    begin
+      AError := 'netsh.exe devolvio el codigo ' +
+        IntToStr(ExitCode) + '.';
+      Exit;
+    end;
+
+    Result := True;
+  finally
+    CloseHandle(SEI.hProcess);
+  end;
+end;
+
+function PrepareLaguNETbiStartup: Boolean;
+var
+  CaptionW: UnicodeString;
+  ExistingWindow: HWND;
+begin
+  Result := False;
+
+  { Una ventana oculta en el tray sigue siendo localizable. }
+  CaptionW := UnicodeString('LaguNET bi');
+  ExistingWindow := FindWindowW(nil, PWideChar(CaptionW));
+
+  if ExistingWindow <> 0 then
+  begin
+    ShowWindow(ExistingWindow, SW_RESTORE);
+    SetForegroundWindow(ExistingWindow);
+    Exit;
+  end;
+
+  { Si nos lanzo la tarea programada, ya tenemos privilegios. }
+  if LaguNETbiIsElevated then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  { Doble clic normal: arrancamos la tarea ya autorizada y salimos. }
+  if StartLaguNETbiScheduledTask then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  { Fallback de lectura/edicion si la tarea no existe. }
+  Result := True;
+end;
+
 
 const
   AF_UNSPEC_LAGUNET = 0;
@@ -255,6 +688,178 @@ procedure WlanFreeMemory(
   Memory: Pointer
 ); stdcall; external 'wlanapi.dll' name 'WlanFreeMemory';
 
+
+
+constructor TAboutForm.CreateHelp(AOwner: TComponent);
+var
+  TitleLabel, SubtitleLabel, IntroLabel: TLabel;
+  StartupGroup, CreditsGroup: TGroupBox;
+  CreditsLabel: TLabel;
+  RepoButton, CloseButton: TButton;
+begin
+  inherited CreateNew(AOwner, 1);
+
+  Caption := 'Ayuda / Acerca de';
+  ClientWidth := 520;
+  ClientHeight := 410;
+  Position := poOwnerFormCenter;
+  BorderStyle := bsDialog;
+  BorderIcons := [biSystemMenu];
+  Color := clWhite;
+  Font.Name := 'Segoe UI';
+  Font.Size := 10;
+
+  if Assigned(Application.Icon) then
+    Icon.Assign(Application.Icon);
+
+  TitleLabel := TLabel.Create(Self);
+  TitleLabel.Parent := Self;
+  TitleLabel.SetBounds(24, 20, 470, 32);
+  TitleLabel.Caption := 'LaguNETbi';
+  TitleLabel.Font.Size := 20;
+  TitleLabel.Font.Style := [fsBold];
+  TitleLabel.ParentFont := False;
+
+  SubtitleLabel := TLabel.Create(Self);
+  SubtitleLabel.Parent := Self;
+  SubtitleLabel.SetBounds(26, 54, 465, 24);
+  SubtitleLabel.Caption := 'Configuracion rapida de red para Windows';
+  SubtitleLabel.Font.Color := $00666666;
+  SubtitleLabel.ParentFont := False;
+
+  IntroLabel := TLabel.Create(Self);
+  IntroLabel.Parent := Self;
+  IntroLabel.SetBounds(26, 84, 465, 38);
+  IntroLabel.AutoSize := False;
+  IntroLabel.WordWrap := True;
+  IntroLabel.Caption :=
+    'Pensado para cambiar configuraciones de red muchas veces al dia ' +
+    'sin convertir LaguNETbi en un ejecutor de comandos arbitrarios.';
+
+  StartupGroup := TGroupBox.Create(Self);
+  StartupGroup.Parent := Self;
+  StartupGroup.SetBounds(24, 132, 472, 112);
+  StartupGroup.Caption := ' Inicio con Windows ';
+
+  FStartupCheck := TCheckBox.Create(Self);
+  FStartupCheck.Parent := StartupGroup;
+  FStartupCheck.SetBounds(16, 26, 430, 24);
+  FStartupCheck.Caption :=
+    'Iniciar con Windows con permisos de administrador';
+  FStartupCheck.OnClick := @StartupChanged;
+
+  FStartupStatus := TLabel.Create(Self);
+  FStartupStatus.Parent := StartupGroup;
+  FStartupStatus.SetBounds(16, 56, 430, 42);
+  FStartupStatus.AutoSize := False;
+  FStartupStatus.WordWrap := True;
+  FStartupStatus.Font.Size := 9;
+  FStartupStatus.Font.Color := $00666666;
+  FStartupStatus.ParentFont := False;
+
+  CreditsGroup := TGroupBox.Create(Self);
+  CreditsGroup.Parent := Self;
+  CreditsGroup.SetBounds(24, 256, 472, 96);
+  CreditsGroup.Caption := ' Acerca de / creditos ';
+
+  CreditsLabel := TLabel.Create(Self);
+  CreditsLabel.Parent := CreditsGroup;
+  CreditsLabel.SetBounds(16, 24, 300, 58);
+  CreditsLabel.AutoSize := False;
+  CreditsLabel.WordWrap := True;
+  CreditsLabel.Caption :=
+    'LaguNETbi: reescritura en Lazarus / Free Pascal.' + LineEnding +
+    'Basado en el proyecto original LaguNET.' + LineEnding +
+    'Proyecto de codigo abierto.';
+
+  RepoButton := TButton.Create(Self);
+  RepoButton.Parent := CreditsGroup;
+  RepoButton.SetBounds(330, 34, 122, 34);
+  RepoButton.Caption := 'Abrir GitHub';
+  RepoButton.OnClick := @OpenRepository;
+
+  CloseButton := TButton.Create(Self);
+  CloseButton.Parent := Self;
+  CloseButton.SetBounds(376, 364, 120, 34);
+  CloseButton.Caption := 'Cerrar';
+  CloseButton.ModalResult := mrOk;
+  CloseButton.Default := True;
+
+  RefreshStartupState;
+end;
+
+procedure TAboutForm.RefreshStartupState;
+begin
+  FUpdating := True;
+  try
+    FStartupCheck.Checked := LaguNETbiStartupTaskExists;
+
+    if FStartupCheck.Checked then
+    begin
+      if LaguNETbiIsElevated then
+        FStartupStatus.Caption :=
+          'Activo. LaguNETbi se ha iniciado con privilegios y no necesita ' +
+          'pedir permiso para cada cambio de red.'
+      else
+        FStartupStatus.Caption :=
+          'Activo para el proximo inicio de LaguNETbi. La sesion actual ' +
+          'seguira pidiendo permiso cuando una operacion lo necesite.';
+    end
+    else
+    begin
+      if LaguNETbiIsElevated then
+        FStartupStatus.Caption :=
+          'Desactivado para proximos inicios. Esta sesion conserva sus ' +
+          'privilegios hasta que salgas de LaguNETbi.'
+      else
+        FStartupStatus.Caption :=
+          'Desactivado. LaguNETbi solo pedira permiso cuando una operacion ' +
+          'de red necesite privilegios.';
+    end;
+  finally
+    FUpdating := False;
+  end;
+end;
+
+procedure TAboutForm.StartupChanged(Sender: TObject);
+var
+  Wanted: Boolean;
+  ErrorText: String;
+begin
+  if FUpdating then
+    Exit;
+
+  Wanted := FStartupCheck.Checked;
+  FStartupCheck.Enabled := False;
+  FStartupStatus.Caption := 'Aplicando...';
+  Application.ProcessMessages;
+
+  try
+    if not LaguNETbiChangeStartupTask(Wanted, ErrorText) then
+    begin
+      MessageDlg(
+        'No se pudo cambiar el inicio con Windows.' + LineEnding +
+        ErrorText,
+        mtError, [mbOK], 0
+      );
+    end;
+  finally
+    FStartupCheck.Enabled := True;
+    RefreshStartupState;
+  end;
+end;
+
+procedure TAboutForm.OpenRepository(Sender: TObject);
+begin
+  ShellExecute(
+    Handle,
+    'open',
+    'https://github.com/aik3n/LaguNETbi',
+    nil,
+    nil,
+    SW_SHOWNORMAL
+  );
+end;
 
 constructor TQuickForm.CreatePopup(AOwner: TComponent);
 begin
@@ -394,6 +999,13 @@ procedure TForm1.FormCreate(Sender: TObject);
 var
   IconPath, LogoPath: String;
 begin
+  FHelpButton := TButton.Create(Self);
+  FHelpButton.Parent := Header;
+  FHelpButton.SetBounds(490, 6, 74, 32);
+  FHelpButton.Caption := 'Ayuda';
+  FHelpButton.Anchors := [akTop, akRight];
+  FHelpButton.OnClick := @ShowHelp;
+
   { Branding update_030 }
   IconPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
     'LaguNETbi.ico';
@@ -2410,13 +3022,182 @@ begin
   StatusLabel.Caption := 'Guardado: ' + ExtractFileName(TargetPath);
 end;
 
-procedure TForm1.PreviewAction(Sender: TObject);
+function TForm1.ExecuteIPv4Configuration(out AError: String): Boolean;
+var
+  P: TProcess;
+  OutputLines, Args: TStringList;
+  AdapterName, GatewayValue, NetshPath: String;
+  NetshOutput, LowerOutput: String;
+  ExitCode: LongInt;
 begin
-  UpdateValidationUI;
-  if not ValidateConfiguration then
-    Exit;
+  Result := False;
+  AError := '';
 
-  StatusLabel.Caption := 'Configuracion valida. Todavia no se ejecuta ningun comando.';
+  AdapterName := AdapterCommandName;
+  if AdapterName = '' then
+  begin
+    AError := 'No hay un adaptador de red seleccionado.';
+    Exit;
+  end;
+
+  Args := TStringList.Create;
+  try
+    Args.Add('interface');
+    Args.Add('ipv4');
+    Args.Add('set');
+    Args.Add('address');
+    Args.Add('name=' + AdapterName);
+
+    if AutomaticBox.Checked then
+      Args.Add('source=dhcp')
+    else
+    begin
+      Args.Add('source=static');
+      Args.Add('address=' + Trim(AddressEdit.Text));
+      Args.Add('mask=' + Trim(MaskEdit.Text));
+
+      GatewayValue := Trim(GatewayEdit.Text);
+      if GatewayValue <> '' then
+        Args.Add('gateway=' + GatewayValue)
+      else
+        Args.Add('gateway=none');
+    end;
+
+    Args.Add('store=persistent');
+
+    { Sin tarea elevada seguimos siendo funcionales:
+      Windows pide UAC solo para esta operacion. }
+    if not LaguNETbiIsElevated then
+    begin
+      Result := LaguNETbiRunElevatedNetsh(Args, AError);
+      Exit;
+    end;
+
+    NetshPath := LaguNETbiNetshPath;
+    if (NetshPath = '') or not FileExists(NetshPath) then
+    begin
+      AError := 'No se encontro netsh.exe en System32.';
+      Exit;
+    end;
+
+    P := TProcess.Create(nil);
+    OutputLines := TStringList.Create;
+    try
+      P.Executable := NetshPath;
+      P.Parameters.Assign(Args);
+      P.Options := [
+        poWaitOnExit,
+        poNoConsole,
+        poUsePipes,
+        poStderrToOutPut
+      ];
+
+      try
+        P.Execute;
+      except
+        on E: Exception do
+        begin
+          AError := 'No se pudo iniciar netsh.exe: ' + E.Message;
+          Exit;
+        end;
+      end;
+
+      ExitCode := P.ExitStatus;
+
+      try
+        OutputLines.LoadFromStream(P.Output);
+        NetshOutput := Trim(OutputLines.Text);
+      except
+        NetshOutput := '';
+      end;
+
+      NetshOutput := StringReplace(NetshOutput, #13, ' ', [rfReplaceAll]);
+      NetshOutput := StringReplace(NetshOutput, #10, ' ', [rfReplaceAll]);
+      LowerOutput := LowerCase(NetshOutput);
+
+      if ExitCode <> 0 then
+      begin
+        AError := 'netsh.exe devolvio el codigo ' +
+          IntToStr(ExitCode) + '.';
+        if NetshOutput <> '' then
+          AError := AError + ' ' + NetshOutput;
+        Exit;
+      end;
+
+      if (Pos('error', LowerOutput) > 0) or
+         (Pos('incorrect', LowerOutput) > 0) or
+         (Pos('invalid', LowerOutput) > 0) or
+         (Pos('no se encuentra', LowerOutput) > 0) or
+         (Pos('not found', LowerOutput) > 0) or
+         (Pos('access is denied', LowerOutput) > 0) or
+         (Pos('acceso denegado', LowerOutput) > 0) then
+      begin
+        AError := 'netsh no pudo aplicar la configuracion.';
+        if NetshOutput <> '' then
+          AError := AError + ' ' + NetshOutput;
+        Exit;
+      end;
+
+      Result := True;
+    finally
+      OutputLines.Free;
+      P.Free;
+    end;
+  finally
+    Args.Free;
+  end;
 end;
+
+procedure TForm1.PreviewAction(Sender: TObject);
+var
+  ErrorText: String;
+begin
+  { Establecer SIEMPRE parte de la UI actual.
+    El BAT seleccionado no se ejecuta. }
+  UpdateValidationUI;
+
+  if not ValidateConfiguration then
+  begin
+    StatusLabel.Caption := 'Configuracion no valida. No se ha aplicado nada.';
+    Exit;
+  end;
+
+  ApplyButton.Enabled := False;
+  Screen.Cursor := crHourGlass;
+  StatusLabel.Caption := 'Aplicando configuracion IPv4...';
+  Application.ProcessMessages;
+
+  try
+    if not ExecuteIPv4Configuration(ErrorText) then
+    begin
+      StatusLabel.Caption := 'Error: ' + ErrorText;
+      Exit;
+    end;
+
+    if WifiBox.Enabled and WifiBox.Checked then
+      StatusLabel.Caption :=
+        'IPv4 aplicada a ' + AdapterCommandName +
+        '. Wi-Fi aun no se ejecuta en esta prueba.'
+    else
+      StatusLabel.Caption :=
+        'Configuracion IPv4 aplicada a ' + AdapterCommandName + '.';
+  finally
+    Screen.Cursor := crDefault;
+    UpdateValidationUI;
+  end;
+end;
+
+procedure TForm1.ShowHelp(Sender: TObject);
+var
+  HelpForm: TAboutForm;
+begin
+  HelpForm := TAboutForm.CreateHelp(Self);
+  try
+    HelpForm.ShowModal;
+  finally
+    HelpForm.Free;
+  end;
+end;
+
 
 end.
