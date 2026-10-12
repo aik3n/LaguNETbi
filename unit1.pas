@@ -8,31 +8,7 @@ uses
   Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList;
 
 type
-  PIPAddressString = ^TIPAddressString;
-  TIPAddressString = record
-    Next: PIPAddressString;
-    IpAddress: array[0..15] of AnsiChar;
-    IpMask: array[0..15] of AnsiChar;
-    Context: DWORD;
-  end;
-
-  PIPAdapterInfo = ^TIPAdapterInfo;
-  TIPAdapterInfo = record
-    Next: PIPAdapterInfo;
-    ComboIndex: DWORD;
-    AdapterName: array[0..259] of AnsiChar;
-    Description: array[0..131] of AnsiChar;
-    AddressLength: UINT;
-    Address: array[0..7] of Byte;
-    AdapterIndex: DWORD;
-    AdapterType: UINT;
-    DhcpEnabled: UINT;
-    CurrentIpAddress: PIPAddressString;
-    IpAddressList: TIPAddressString;
-    GatewayList: TIPAddressString;
-  end;
-
-  PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
+PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
   TIPAdapterAddressesPartial = record
     Length: DWORD;
     IfIndex: DWORD;
@@ -90,6 +66,31 @@ type
     procedure RefreshStartupState;
   public
     constructor CreateHelp(AOwner: TComponent);
+  end;
+
+
+  TConfigurationValidation = record
+    AdapterOK: Boolean;
+    AddressOK: Boolean;
+    MaskOK: Boolean;
+    GatewayOK: Boolean;
+    WifiOK: Boolean;
+    PingOK: Boolean;
+    ConfigOK: Boolean;
+  end;
+
+
+  TNetworkConfig = record
+    AdapterName: String;
+    UseDhcp: Boolean;
+    Address: String;
+    Mask: String;
+    Gateway: String;
+    WifiSupported: Boolean;
+    UseWifi: Boolean;
+    WifiProfile: String;
+    UsePing: Boolean;
+    PingTarget: String;
   end;
 
   TForm1 = class(TForm)
@@ -159,7 +160,7 @@ type
     procedure AutoFillMask(Sender: TObject);
     procedure SaveScriptConfiguration(Sender: TObject);
     procedure PreviewAction(Sender: TObject);
-    procedure ShowHelp(Sender: TObject);
+    procedure ShowHelpWindow(Sender: TObject);
   private
     FExiting: Boolean;
     FTrayReady: Boolean;
@@ -199,8 +200,15 @@ type
     function ParseIPv4(const S: String; out A, B, C, D: Integer): Boolean;
     function IsValidIPv4(const S: String): Boolean;
     function IsValidSubnetMask(const S: String): Boolean;
+    function CurrentNetworkConfig: TNetworkConfig;
+    function EvaluateConfiguration(
+      const AConfig: TNetworkConfig
+    ): TConfigurationValidation;
     function ValidateConfiguration: Boolean;
-    function ExecuteIPv4Configuration(out AError: String): Boolean;
+    function ExecuteIPv4Configuration(
+      const AConfig: TNetworkConfig;
+      out AError: String
+    ): Boolean;
     procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
@@ -223,426 +231,13 @@ type
 var
   Form1: TForm1;
 
-function PrepareLaguNETbiStartup: Boolean;
-function LaguNETbiStartupTaskExists: Boolean;
-function LaguNETbiSetStartupTask(AEnable: Boolean): Boolean;
 
 implementation
 
+uses
+  uWindowsSupport;
+
 {$R *.lfm}
-
-
-type
-  TLaguNETbiTokenElevation = record
-    TokenIsElevated: DWORD;
-  end;
-
-const
-  TOKEN_QUERY_LAGUNET = $0008;
-  TOKEN_ELEVATION_CLASS_LAGUNET = 20;
-
-function LaguNETbiOpenProcessToken(
-  ProcessHandle: THandle;
-  DesiredAccess: DWORD;
-  var TokenHandle: THandle
-): BOOL; stdcall; external 'advapi32.dll' name 'OpenProcessToken';
-
-function LaguNETbiGetTokenInformation(
-  TokenHandle: THandle;
-  TokenInformationClass: DWORD;
-  TokenInformation: Pointer;
-  TokenInformationLength: DWORD;
-  var ReturnLength: DWORD
-): BOOL; stdcall; external 'advapi32.dll' name 'GetTokenInformation';
-
-function LaguNETbiIsElevated: Boolean;
-var
-  TokenHandle: THandle;
-  Elevation: TLaguNETbiTokenElevation;
-  ReturnLength: DWORD;
-begin
-  Result := False;
-  TokenHandle := 0;
-
-  if not LaguNETbiOpenProcessToken(
-    GetCurrentProcess,
-    TOKEN_QUERY_LAGUNET,
-    TokenHandle
-  ) then
-    Exit;
-
-  try
-    FillChar(Elevation, SizeOf(Elevation), 0);
-    ReturnLength := 0;
-
-    if LaguNETbiGetTokenInformation(
-      TokenHandle,
-      TOKEN_ELEVATION_CLASS_LAGUNET,
-      @Elevation,
-      SizeOf(Elevation),
-      ReturnLength
-    ) then
-      Result := Elevation.TokenIsElevated <> 0;
-  finally
-    CloseHandle(TokenHandle);
-  end;
-end;
-
-function LaguNETbiNetshPath: String;
-var
-  Buffer: array[0..MAX_PATH] of WideChar;
-  N: UINT;
-begin
-  Result := '';
-  FillChar(Buffer, SizeOf(Buffer), 0);
-
-  N := GetSystemDirectoryW(@Buffer[0], MAX_PATH);
-  if (N = 0) or (N >= MAX_PATH) then
-    Exit;
-
-  Result := UTF8Encode(UnicodeString(PWideChar(@Buffer[0])));
-  Result := IncludeTrailingPathDelimiter(Result) + 'netsh.exe';
-end;
-
-function StartLaguNETbiScheduledTask: Boolean;
-var
-  P: TProcess;
-  SchTasksPath: String;
-begin
-  Result := False;
-
-  SchTasksPath := IncludeTrailingPathDelimiter(
-    ExtractFileDir(LaguNETbiNetshPath)
-  ) + 'schtasks.exe';
-
-  if not FileExists(SchTasksPath) then
-    Exit;
-
-  P := TProcess.Create(nil);
-  try
-    P.Executable := SchTasksPath;
-    P.Options := [poWaitOnExit, poNoConsole];
-    P.Parameters.Add('/Run');
-    P.Parameters.Add('/TN');
-    P.Parameters.Add('LaguNETbi');
-
-    try
-      P.Execute;
-      Result := P.ExitStatus = 0;
-    except
-      Result := False;
-    end;
-  finally
-    P.Free;
-  end;
-end;
-
-
-function LaguNETbiSchtasksPath: String;
-begin
-  Result := IncludeTrailingPathDelimiter(
-    ExtractFileDir(LaguNETbiNetshPath)
-  ) + 'schtasks.exe';
-end;
-
-function LaguNETbiRunProcess(
-  const AExecutable: String;
-  AParameters: TStrings;
-  out AExitCode: LongInt
-): Boolean;
-var
-  P: TProcess;
-begin
-  Result := False;
-  AExitCode := -1;
-
-  P := TProcess.Create(nil);
-  try
-    P.Executable := AExecutable;
-    P.Parameters.Assign(AParameters);
-    P.Options := [poWaitOnExit, poNoConsole];
-
-    try
-      P.Execute;
-    except
-      Exit;
-    end;
-
-    AExitCode := P.ExitStatus;
-    Result := True;
-  finally
-    P.Free;
-  end;
-end;
-
-function LaguNETbiStartupTaskExists: Boolean;
-var
-  Args: TStringList;
-  ExitCode: LongInt;
-  TaskExe: String;
-begin
-  Result := False;
-  TaskExe := LaguNETbiSchtasksPath;
-
-  if (TaskExe = '') or not FileExists(TaskExe) then
-    Exit;
-
-  Args := TStringList.Create;
-  try
-    Args.Add('/Query');
-    Args.Add('/TN');
-    Args.Add('LaguNETbi');
-
-    if LaguNETbiRunProcess(TaskExe, Args, ExitCode) then
-      Result := ExitCode = 0;
-  finally
-    Args.Free;
-  end;
-end;
-
-function LaguNETbiSetStartupTask(AEnable: Boolean): Boolean;
-var
-  Args: TStringList;
-  ExitCode: LongInt;
-  TaskExe, ExePath: String;
-begin
-  Result := False;
-  TaskExe := LaguNETbiSchtasksPath;
-
-  if (TaskExe = '') or not FileExists(TaskExe) then
-    Exit;
-
-  Args := TStringList.Create;
-  try
-    if AEnable then
-    begin
-      ExePath := ExpandFileName(ParamStr(0));
-
-      Args.Add('/Create');
-      Args.Add('/TN');
-      Args.Add('LaguNETbi');
-      Args.Add('/TR');
-      Args.Add(ExePath);
-      Args.Add('/SC');
-      Args.Add('ONLOGON');
-      Args.Add('/RL');
-      Args.Add('HIGHEST');
-      Args.Add('/IT');
-      Args.Add('/F');
-    end
-    else
-    begin
-      Args.Add('/Delete');
-      Args.Add('/TN');
-      Args.Add('LaguNETbi');
-      Args.Add('/F');
-    end;
-
-    if LaguNETbiRunProcess(TaskExe, Args, ExitCode) then
-      Result := ExitCode = 0;
-  finally
-    Args.Free;
-  end;
-end;
-
-function LaguNETbiRunElevatedSelf(
-  const AParameter: String;
-  out AError: String
-): Boolean;
-var
-  SEI: TShellExecuteInfoW;
-  VerbW, FileW, ParamsW: UnicodeString;
-  ExitCode: DWORD;
-  LastErr: DWORD;
-begin
-  Result := False;
-  AError := '';
-
-  VerbW := UnicodeString('runas');
-  FileW := UnicodeString(Application.ExeName);
-  ParamsW := UnicodeString(AParameter);
-
-  FillChar(SEI, SizeOf(SEI), 0);
-  SEI.cbSize := SizeOf(SEI);
-  SEI.fMask := SEE_MASK_NOCLOSEPROCESS;
-  SEI.lpVerb := PWideChar(VerbW);
-  SEI.lpFile := PWideChar(FileW);
-  SEI.lpParameters := PWideChar(ParamsW);
-  SEI.nShow := SW_HIDE;
-
-  if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
-  begin
-    LastErr := GetLastError;
-    if LastErr = ERROR_CANCELLED then
-      AError := 'Operacion cancelada.'
-    else
-      AError := 'Windows no pudo completar la operacion. ' +
-        SysErrorMessage(LastErr);
-    Exit;
-  end;
-
-  try
-    WaitForSingleObject(SEI.hProcess, INFINITE);
-
-    ExitCode := 1;
-    if not GetExitCodeProcess(SEI.hProcess, ExitCode) then
-    begin
-      AError := 'No se pudo obtener el resultado de la operacion.';
-      Exit;
-    end;
-
-    if ExitCode <> 0 then
-    begin
-      AError := 'No se pudo cambiar la opcion de inicio con Windows.';
-      Exit;
-    end;
-
-    Result := True;
-  finally
-    CloseHandle(SEI.hProcess);
-  end;
-end;
-
-function LaguNETbiChangeStartupTask(
-  AEnable: Boolean;
-  out AError: String
-): Boolean;
-var
-  Param: String;
-begin
-  AError := '';
-
-  if LaguNETbiIsElevated then
-  begin
-    Result := LaguNETbiSetStartupTask(AEnable);
-    if not Result then
-      AError := 'No se pudo modificar la tarea programada LaguNETbi.';
-    Exit;
-  end;
-
-  if AEnable then
-    Param := '--lagunetbi-startup-enable'
-  else
-    Param := '--lagunetbi-startup-disable';
-
-  Result := LaguNETbiRunElevatedSelf(Param, AError);
-end;
-
-function LaguNETbiQuoteArgument(const S: String): String;
-begin
-  Result := '"' + StringReplace(S, '"', '\"', [rfReplaceAll]) + '"';
-end;
-
-function LaguNETbiRunElevatedNetsh(
-  AParameters: TStrings;
-  out AError: String
-): Boolean;
-var
-  SEI: TShellExecuteInfoW;
-  VerbW, FileW, ParamsW: UnicodeString;
-  Params, NetshPath: String;
-  I: Integer;
-  ExitCode, LastErr: DWORD;
-begin
-  Result := False;
-  AError := '';
-
-  NetshPath := LaguNETbiNetshPath;
-  if (NetshPath = '') or not FileExists(NetshPath) then
-  begin
-    AError := 'No se encontro netsh.exe en System32.';
-    Exit;
-  end;
-
-  Params := '';
-  for I := 0 to AParameters.Count - 1 do
-  begin
-    if Params <> '' then
-      Params := Params + ' ';
-    Params := Params + LaguNETbiQuoteArgument(AParameters[I]);
-  end;
-
-  VerbW := UnicodeString('runas');
-  FileW := UnicodeString(NetshPath);
-  ParamsW := UnicodeString(Params);
-
-  FillChar(SEI, SizeOf(SEI), 0);
-  SEI.cbSize := SizeOf(SEI);
-  SEI.fMask := SEE_MASK_NOCLOSEPROCESS;
-  SEI.lpVerb := PWideChar(VerbW);
-  SEI.lpFile := PWideChar(FileW);
-  SEI.lpParameters := PWideChar(ParamsW);
-  SEI.nShow := SW_HIDE;
-
-  if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
-  begin
-    LastErr := GetLastError;
-    if LastErr = ERROR_CANCELLED then
-      AError := 'Operacion cancelada: no se concedieron permisos.'
-    else
-      AError := 'No se pudo iniciar netsh.exe. ' +
-        SysErrorMessage(LastErr);
-    Exit;
-  end;
-
-  try
-    WaitForSingleObject(SEI.hProcess, INFINITE);
-
-    ExitCode := 1;
-    if not GetExitCodeProcess(SEI.hProcess, ExitCode) then
-    begin
-      AError := 'No se pudo obtener el resultado de netsh.exe.';
-      Exit;
-    end;
-
-    if ExitCode <> 0 then
-    begin
-      AError := 'netsh.exe devolvio el codigo ' +
-        IntToStr(ExitCode) + '.';
-      Exit;
-    end;
-
-    Result := True;
-  finally
-    CloseHandle(SEI.hProcess);
-  end;
-end;
-
-function PrepareLaguNETbiStartup: Boolean;
-var
-  CaptionW: UnicodeString;
-  ExistingWindow: HWND;
-begin
-  Result := False;
-
-  { Una ventana oculta en el tray sigue siendo localizable. }
-  CaptionW := UnicodeString('LaguNET bi');
-  ExistingWindow := FindWindowW(nil, PWideChar(CaptionW));
-
-  if ExistingWindow <> 0 then
-  begin
-    ShowWindow(ExistingWindow, SW_RESTORE);
-    SetForegroundWindow(ExistingWindow);
-    Exit;
-  end;
-
-  { Si nos lanzo la tarea programada, ya tenemos privilegios. }
-  if LaguNETbiIsElevated then
-  begin
-    Result := True;
-    Exit;
-  end;
-
-  { Doble clic normal: arrancamos la tarea ya autorizada y salimos. }
-  if StartLaguNETbiScheduledTask then
-  begin
-    Result := False;
-    Exit;
-  end;
-
-  { Fallback de lectura/edicion si la tarea no existe. }
-  Result := True;
-end;
 
 
 const
@@ -659,11 +254,6 @@ function GetAdaptersAddresses(
   AdapterAddresses: PIPAdapterAddressesPartial;
   var SizePointer: DWORD
 ): DWORD; stdcall; external 'iphlpapi.dll' name 'GetAdaptersAddresses';
-
-function GetAdaptersInfo(
-  AdapterInfo: PIPAdapterInfo;
-  var SizePointer: ULONG
-): DWORD; stdcall; external 'iphlpapi.dll' name 'GetAdaptersInfo';
 
 function WlanOpenHandle(
   ClientVersion: DWORD;
@@ -1004,7 +594,7 @@ begin
   FHelpButton.SetBounds(490, 6, 74, 32);
   FHelpButton.Caption := 'Ayuda';
   FHelpButton.Anchors := [akTop, akRight];
-  FHelpButton.OnClick := @ShowHelp;
+  FHelpButton.OnClick := @ShowHelpWindow;
 
   { Branding update_030 }
   IconPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
@@ -1543,8 +1133,8 @@ begin
 end;
 
 function TForm1.LoadCurrentAdapterConfiguration: Boolean;
-  { GetAdaptersInfo refleja estado/direcciones activas; esta version
-    lee la configuracion TCP/IP persistida por Windows. }
+  { Leemos la configuracion TCP/IP persistida por Windows para que
+    tambien funcione con adaptadores desconectados. }
 
   function ReadRegDword(AKey: HKEY; const AName: AnsiString;
     out AValue: DWORD): Boolean;
@@ -1979,97 +1569,108 @@ begin
   Result := True;
 end;
 
-function TForm1.ValidateConfiguration: Boolean;
-var
-  AdapterOK, AddressOK, MaskOK, GatewayOK, WifiOK, PingOK: Boolean;
+function TForm1.CurrentNetworkConfig: TNetworkConfig;
 begin
-  AdapterOK := Trim(Adapter.Text) <> '';
+  Result.AdapterName := AdapterCommandName;
+  Result.UseDhcp := AutomaticBox.Checked;
+  Result.Address := Trim(AddressEdit.Text);
+  Result.Mask := Trim(MaskEdit.Text);
+  Result.Gateway := Trim(GatewayEdit.Text);
+  Result.WifiSupported := WifiBox.Enabled;
+  Result.UseWifi := WifiBox.Checked;
+  Result.WifiProfile := Trim(WifiCombo.Text);
+  Result.UsePing := PingBox.Checked;
+  Result.PingTarget := Trim(PingEdit.Text);
+end;
 
-  if AutomaticBox.Checked then
+function TForm1.EvaluateConfiguration(
+  const AConfig: TNetworkConfig
+): TConfigurationValidation;
+begin
+  Result.AdapterOK := Trim(AConfig.AdapterName) <> '';
+
+  if AConfig.UseDhcp then
   begin
-    AddressOK := True;
-    MaskOK := True;
-    GatewayOK := True;
+    Result.AddressOK := True;
+    Result.MaskOK := True;
+    Result.GatewayOK := True;
   end
   else
   begin
-    AddressOK := IsValidIPv4(AddressEdit.Text);
-    MaskOK := IsValidSubnetMask(MaskEdit.Text);
-    GatewayOK := (Trim(GatewayEdit.Text) = '') or
-      IsValidIPv4(GatewayEdit.Text);
+    Result.AddressOK := IsValidIPv4(AConfig.Address);
+    Result.MaskOK := IsValidSubnetMask(AConfig.Mask);
+    Result.GatewayOK := (AConfig.Gateway = '') or
+      IsValidIPv4(AConfig.Gateway);
   end;
 
-  WifiOK := (not WifiBox.Enabled) or (not WifiBox.Checked) or
-    ((Trim(WifiCombo.Text) <> '') and
-     (not SameText(Trim(WifiCombo.Text), 'Sin seleccionar')));
+  Result.WifiOK :=
+    (not AConfig.WifiSupported) or
+    (not AConfig.UseWifi) or
+    (
+      (AConfig.WifiProfile <> '') and
+      (not SameText(AConfig.WifiProfile, 'Sin seleccionar'))
+    );
 
-  PingOK := (not PingBox.Checked) or IsValidIPv4(PingEdit.Text);
+  Result.PingOK :=
+    (not AConfig.UsePing) or IsValidIPv4(AConfig.PingTarget);
 
-  Result := AdapterOK and AddressOK and MaskOK and GatewayOK and
-    WifiOK and PingOK;
+  Result.ConfigOK :=
+    Result.AdapterOK and
+    Result.AddressOK and
+    Result.MaskOK and
+    Result.GatewayOK and
+    Result.WifiOK and
+    Result.PingOK;
+end;
+
+function TForm1.ValidateConfiguration: Boolean;
+var
+  Config: TNetworkConfig;
+begin
+  Config := CurrentNetworkConfig;
+  Result := EvaluateConfiguration(Config).ConfigOK;
 end;
 
 procedure TForm1.UpdateValidationUI;
 const
   InvalidColor = TColor($00D0D0FF);
 var
-  AdapterOK, AddressOK, MaskOK, GatewayOK, WifiOK, PingOK: Boolean;
-  ConfigOK, NameOK, HasDestination: Boolean;
+  Config: TNetworkConfig;
+  Validation: TConfigurationValidation;
+  NameOK, HasDestination: Boolean;
 begin
-  AdapterOK := Trim(Adapter.Text) <> '';
+  Config := CurrentNetworkConfig;
+  Validation := EvaluateConfiguration(Config);
 
-  if AutomaticBox.Checked then
-  begin
-    AddressOK := True;
-    MaskOK := True;
-    GatewayOK := True;
-  end
-  else
-  begin
-    AddressOK := IsValidIPv4(AddressEdit.Text);
-    MaskOK := IsValidSubnetMask(MaskEdit.Text);
-    GatewayOK := (Trim(GatewayEdit.Text) = '') or
-      IsValidIPv4(GatewayEdit.Text);
-  end;
-
-  WifiOK := (not WifiBox.Enabled) or (not WifiBox.Checked) or
-    ((Trim(WifiCombo.Text) <> '') and
-     (not SameText(Trim(WifiCombo.Text), 'Sin seleccionar')));
-
-  PingOK := (not PingBox.Checked) or IsValidIPv4(PingEdit.Text);
-
-  if AdapterOK then
+  if Validation.AdapterOK then
     Adapter.Color := clWindow
   else
     Adapter.Color := InvalidColor;
 
-  if AutomaticBox.Checked or AddressOK then
+  if Config.UseDhcp or Validation.AddressOK then
     AddressEdit.Color := clWindow
   else
     AddressEdit.Color := InvalidColor;
 
-  if AutomaticBox.Checked or MaskOK then
+  if Config.UseDhcp or Validation.MaskOK then
     MaskEdit.Color := clWindow
   else
     MaskEdit.Color := InvalidColor;
 
-  if AutomaticBox.Checked or GatewayOK then
+  if Config.UseDhcp or Validation.GatewayOK then
     GatewayEdit.Color := clWindow
   else
     GatewayEdit.Color := InvalidColor;
 
-  if (not WifiBox.Checked) or WifiOK then
+  if (not Config.UseWifi) or Validation.WifiOK then
     WifiCombo.Color := clWindow
   else
     WifiCombo.Color := InvalidColor;
 
-  if (not PingBox.Checked) or PingOK then
+  if (not Config.UsePing) or Validation.PingOK then
     PingEdit.Color := clWindow
   else
     PingEdit.Color := InvalidColor;
-
-  ConfigOK := AdapterOK and AddressOK and MaskOK and GatewayOK and
-    WifiOK and PingOK;
 
   NameOK := IsValidScriptName(NameEdit.Text);
   HasDestination := IsScriptNode(ScriptTree.Selected) or
@@ -2080,8 +1681,9 @@ begin
   else
     NameEdit.Color := InvalidColor;
 
-  SaveButton.Enabled := ConfigOK and NameOK and HasDestination;
-  ApplyButton.Enabled := ConfigOK;
+  SaveButton.Enabled :=
+    Validation.ConfigOK and NameOK and HasDestination;
+  ApplyButton.Enabled := Validation.ConfigOK;
 end;
 
 procedure TForm1.LoadScriptConfiguration(const AFileName: String);
@@ -2823,7 +2425,7 @@ var
   AdapterName, S, L, GatewayValue: String;
   Lines, Output: TStringList;
   I: Integer;
-  AddressDone, WifiDone, PingDone, DescriptionDone: Boolean;
+  AddressDone, WifiDone: Boolean;
   EditingExisting, ReplacingOther: Boolean;
 begin
   UpdateValidationUI;
@@ -2927,8 +2529,6 @@ begin
 
     AddressDone := False;
     WifiDone := False;
-    PingDone := False;
-    DescriptionDone := False;
 
     for I := 0 to Lines.Count - 1 do
     begin
@@ -2937,7 +2537,6 @@ begin
 
       if Pos(':: description=', L) = 1 then
       begin
-        DescriptionDone := True;
         Continue;
       end;
 
@@ -2962,7 +2561,6 @@ begin
       if (Pos(':: testping=', L) = 1) or
         SameText(Trim(S), ':: No test Ping') then
       begin
-        PingDone := True;
         Continue;
       end;
 
@@ -3022,19 +2620,21 @@ begin
   StatusLabel.Caption := 'Guardado: ' + ExtractFileName(TargetPath);
 end;
 
-function TForm1.ExecuteIPv4Configuration(out AError: String): Boolean;
+function TForm1.ExecuteIPv4Configuration(
+  const AConfig: TNetworkConfig;
+  out AError: String
+): Boolean;
 var
   P: TProcess;
   OutputLines, Args: TStringList;
-  AdapterName, GatewayValue, NetshPath: String;
+  NetshPath: String;
   NetshOutput, LowerOutput: String;
   ExitCode: LongInt;
 begin
   Result := False;
   AError := '';
 
-  AdapterName := AdapterCommandName;
-  if AdapterName = '' then
+  if AConfig.AdapterName = '' then
   begin
     AError := 'No hay un adaptador de red seleccionado.';
     Exit;
@@ -3046,19 +2646,18 @@ begin
     Args.Add('ipv4');
     Args.Add('set');
     Args.Add('address');
-    Args.Add('name=' + AdapterName);
+    Args.Add('name=' + AConfig.AdapterName);
 
-    if AutomaticBox.Checked then
+    if AConfig.UseDhcp then
       Args.Add('source=dhcp')
     else
     begin
       Args.Add('source=static');
-      Args.Add('address=' + Trim(AddressEdit.Text));
-      Args.Add('mask=' + Trim(MaskEdit.Text));
+      Args.Add('address=' + AConfig.Address);
+      Args.Add('mask=' + AConfig.Mask);
 
-      GatewayValue := Trim(GatewayEdit.Text);
-      if GatewayValue <> '' then
-        Args.Add('gateway=' + GatewayValue)
+      if AConfig.Gateway <> '' then
+        Args.Add('gateway=' + AConfig.Gateway)
       else
         Args.Add('gateway=none');
     end;
@@ -3150,13 +2749,17 @@ end;
 
 procedure TForm1.PreviewAction(Sender: TObject);
 var
+  Config: TNetworkConfig;
+  Validation: TConfigurationValidation;
   ErrorText: String;
 begin
   { Establecer SIEMPRE parte de la UI actual.
     El BAT seleccionado no se ejecuta. }
+  Config := CurrentNetworkConfig;
+  Validation := EvaluateConfiguration(Config);
   UpdateValidationUI;
 
-  if not ValidateConfiguration then
+  if not Validation.ConfigOK then
   begin
     StatusLabel.Caption := 'Configuracion no valida. No se ha aplicado nada.';
     Exit;
@@ -3168,26 +2771,26 @@ begin
   Application.ProcessMessages;
 
   try
-    if not ExecuteIPv4Configuration(ErrorText) then
+    if not ExecuteIPv4Configuration(Config, ErrorText) then
     begin
       StatusLabel.Caption := 'Error: ' + ErrorText;
       Exit;
     end;
 
-    if WifiBox.Enabled and WifiBox.Checked then
+    if Config.WifiSupported and Config.UseWifi then
       StatusLabel.Caption :=
-        'IPv4 aplicada a ' + AdapterCommandName +
+        'IPv4 aplicada a ' + Config.AdapterName +
         '. Wi-Fi aun no se ejecuta en esta prueba.'
     else
       StatusLabel.Caption :=
-        'Configuracion IPv4 aplicada a ' + AdapterCommandName + '.';
+        'Configuracion IPv4 aplicada a ' + Config.AdapterName + '.';
   finally
     Screen.Cursor := crDefault;
     UpdateValidationUI;
   end;
 end;
 
-procedure TForm1.ShowHelp(Sender: TObject);
+procedure TForm1.ShowHelpWindow(Sender: TObject);
 var
   HelpForm: TAboutForm;
 begin
