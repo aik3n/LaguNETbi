@@ -1,0 +1,13 @@
+/lib/
+/backup/
+/.lagunetbi-backup/
+/LaguNETbi.exe
+/LaguNETbi.ini
+*.lps
+*.ppu
+*.o
+*.or
+*.compiled
+*.a
+*.bak
+*~
