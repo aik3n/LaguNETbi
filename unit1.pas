@@ -124,6 +124,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     PingBox: TCheckBox;
     PingEdit: TEdit;
     StatusLabel: TLabel;
+    PingProgress: TProgressBar;
     SaveButton: TButton;
     ApplyButton: TButton;
     Footer: TPanel;
@@ -209,6 +210,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
       const AConfig: TNetworkConfig;
       out AError: String
     ): Boolean;
+    procedure RunPingTest(const ATarget: String);
     procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
@@ -2399,6 +2401,14 @@ end;
 procedure TForm1.TogglePing(Sender: TObject);
 begin
   PingEdit.Enabled := PingBox.Checked;
+
+  if not PingBox.Checked then
+  begin
+    PingProgress.Position := 0;
+    PingProgress.Visible := False;
+    StatusLabel.Font.Color := TColor(7760478);
+  end;
+
   UpdateValidationUI;
 end;
 
@@ -2771,6 +2781,105 @@ begin
   end;
 end;
 
+procedure TForm1.RunPingTest(const ATarget: String);
+const
+  PingAttempts = 10;
+var
+  I, Replies, Loss: Integer;
+  P: TProcess;
+  PingExe: String;
+begin
+  Replies := 0;
+  StatusLabel.Font.Color := TColor(7760478);
+
+  PingProgress.Min := 0;
+  PingProgress.Max := PingAttempts;
+  PingProgress.Position := 0;
+  PingProgress.Visible := True;
+
+  PingExe := IncludeTrailingPathDelimiter(GetEnvironmentVariable('WINDIR')) +
+    'System32' + PathDelim + 'PING.EXE';
+
+  if not FileExists(PingExe) then
+    PingExe := 'ping.exe';
+
+  for I := 1 to PingAttempts do
+  begin
+    StatusLabel.Caption := Format(
+      'Ping %s - intento %d/%d - respuestas %d',
+      [ATarget, I, PingAttempts, Replies]);
+    Application.ProcessMessages;
+
+    P := TProcess.Create(nil);
+    try
+      P.Executable := PingExe;
+      P.Parameters.Add('-n');
+      P.Parameters.Add('1');
+      P.Parameters.Add('-w');
+      P.Parameters.Add('1000');
+      P.Parameters.Add(ATarget);
+      P.Options := [poNoConsole];
+
+      try
+        P.Execute;
+
+        while P.Running do
+        begin
+          Application.ProcessMessages;
+          Sleep(20);
+        end;
+
+        if P.ExitStatus = 0 then
+          Inc(Replies);
+      except
+        on E: Exception do
+        begin
+          PingProgress.Position := 0;
+          StatusLabel.Font.Color := clRed;
+          StatusLabel.Caption := 'PING NOK - error: ' + E.Message;
+          Exit;
+        end;
+      end;
+    finally
+      P.Free;
+    end;
+
+    PingProgress.Position := I;
+    StatusLabel.Caption := Format(
+      'Ping %s - intento %d/%d - respuestas %d',
+      [ATarget, I, PingAttempts, Replies]);
+    Application.ProcessMessages;
+  end;
+
+  Loss := ((PingAttempts - Replies) * 100) div PingAttempts;
+
+  { Al terminar, la barra representa respuestas correctas de 10. }
+  PingProgress.Position := Replies;
+
+  if Replies = PingAttempts then
+  begin
+    StatusLabel.Font.Color := clGreen;
+    StatusLabel.Caption := Format(
+      'PING OK - %d/%d respuestas - %d%% perdida',
+      [Replies, PingAttempts, Loss]);
+  end
+  else if Replies = 0 then
+  begin
+    StatusLabel.Font.Color := clRed;
+    StatusLabel.Caption := Format(
+      'PING NOK - %d/%d respuestas - %d%% perdida',
+      [Replies, PingAttempts, Loss]);
+  end
+  else
+  begin
+    StatusLabel.Font.Color := TColor($000080FF);
+    StatusLabel.Caption := Format(
+      'PING INESTABLE - %d/%d respuestas - %d%% perdida',
+      [Replies, PingAttempts, Loss]);
+  end;
+end;
+
+
 procedure TForm1.PreviewAction(Sender: TObject);
 var
   Config: TNetworkConfig;
@@ -2801,7 +2910,9 @@ begin
       Exit;
     end;
 
-    if Config.WifiSupported and Config.UseWifi then
+    if Config.UsePing then
+      RunPingTest(Config.PingTarget)
+    else if Config.WifiSupported and Config.UseWifi then
       StatusLabel.Caption :=
         'IPv4 aplicada a ' + Config.AdapterName +
         '. Wi-Fi aun no se ejecuta en esta prueba.'

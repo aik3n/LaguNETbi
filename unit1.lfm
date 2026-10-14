@@ -372,11 +372,21 @@ object Form1: TForm1
         ParentFont = False
         TabOrder = 2
       end
+      object PingProgress: TProgressBar
+        Left = 14
+        Top = 112
+        Width = 552
+        Height = 10
+        Max = 10
+        TabOrder = 3
+        Visible = False
+      end
       object StatusLabel: TLabel
         Left = 14
-        Top = 114
-        Width = 520
+        Top = 126
+        Width = 552
         Height = 20
+        AutoSize = False
         Caption = 'Selecciona un script.'
         Font.Size = 9
         Font.Color = 7760478
@@ -384,7 +394,7 @@ object Form1: TForm1
       end
       object SaveButton: TButton
         Left = 14
-        Top = 140
+        Top = 150
         Width = 220
         Height = 42
         Caption = 'Guardar'
@@ -393,7 +403,7 @@ object Form1: TForm1
       end
       object ApplyButton: TButton
         Left = 346
-        Top = 140
+        Top = 150
         Width = 220
         Height = 42
         Caption = 'Establecer'
