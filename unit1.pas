@@ -587,7 +587,7 @@ end;
 
 procedure TForm1.FormCreate(Sender: TObject);
 var
-  IconPath, LogoPath: String;
+  LogoPath: String;
   InfoBmp: TBitmap;
 begin
   FHelpButton := TSpeedButton.Create(Self);
@@ -630,20 +630,6 @@ begin
     InfoBmp.Free;
   end;
 
-  IconPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
-    'assets' + PathDelim + 'LaguNETbi.ico';
-
-  if FileExists(IconPath) then
-  begin
-    try
-      Application.Icon.LoadFromFile(IconPath);
-      Self.Icon.Assign(Application.Icon);
-    except
-      { Si el recurso externo falla, mantenemos el icono compilado. }
-    end;
-  end;
-
-  TrayIcon.Icon.Assign(Application.Icon);
   FTrayReady := TrayIcon.Show;
   if not FTrayReady then TrayIcon.Hide;
 
