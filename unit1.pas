@@ -600,7 +600,6 @@ begin
   FHelpButton.Hint := 'Informacion';
   FHelpButton.ShowHint := True;
   FHelpButton.Cursor := crHandPoint;
-  FHelpButton.Anchors := [akTop, akRight];
   FHelpButton.OnClick := @ShowHelpWindow;
 
   InfoBmp := TBitmap.Create;

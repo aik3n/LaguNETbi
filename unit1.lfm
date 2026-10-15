@@ -19,62 +19,61 @@ object Form1: TForm1
   OnDestroy = FormDestroy
   object Sidebar: TPanel
     Left = 0
-    Height = 1440
+    Height = 720
     Top = 0
-    Width = 496
-    Align = alLeft
+    Width = 248
     BevelOuter = bvNone
-    ClientHeight = 1440
-    ClientWidth = 496
+    ClientHeight = 720
+    ClientWidth = 248
     Color = 3350804
     ParentBackground = False
     ParentColor = False
     TabOrder = 0
     object BrandLabel: TLabel
-      Left = 48
-      Height = 170
-      Top = 60
-      Width = 535
+      Left = 24
+      Height = 86
+      Top = 30
+      Width = 270
       Caption = 'LaguNET'
       Font.Color = clWhite
-      Font.Height = -128
+      Font.Height = -64
       Font.Style = [fsBold]
       ParentFont = False
       Visible = False
     end
     object TaglineLabel: TLabel
-      Left = 52
-      Height = 72
-      Top = 144
-      Width = 591
+      Left = 26
+      Height = 37
+      Top = 72
+      Width = 291
       Caption = 'bi  /  Tu red, a tu manera'
       Font.Color = 15592941
-      Font.Height = -54
+      Font.Height = -27
       ParentFont = False
       Visible = False
     end
     object ProfilesLabel: TLabel
-      Left = 52
-      Height = 65
-      Top = 48
-      Width = 175
+      Left = 26
+      Height = 32
+      Top = 24
+      Width = 87
       Caption = 'SCRIPTS'
       Font.Color = clWhite
-      Font.Height = -48
+      Font.Height = -24
       ParentFont = False
     end
     object ScriptTree: TTreeView
-      Left = 32
-      Height = 1198
-      Top = 108
-      Width = 432
+      Left = 16
+      Height = 599
+      Top = 54
+      Width = 216
       BackgroundColor = clWhite
       BorderStyle = bsNone
       Color = clWhite
       DragMode = dmAutomatic
       Font.Color = 3350804
-      Font.Height = -58
-      Indent = 40
+      Font.Height = -29
+      Indent = 20
       ParentFont = False
       ReadOnly = True
       TabOrder = 0
@@ -86,120 +85,119 @@ object Form1: TForm1
       OnMouseMove = ScriptTreeMouseMove
     end
     object CountLabel: TLabel
-      Left = 52
-      Height = 72
-      Top = 1348
-      Width = 480
+      Left = 26
+      Height = 37
+      Top = 674
+      Width = 238
       Caption = '3 scripts de ejemplo'
       Font.Color = 15592941
-      Font.Height = -54
+      Font.Height = -27
       ParentFont = False
     end
     object VersionLabel: TLabel
-      Left = 52
-      Height = 65
-      Top = 1240
-      Width = 448
+      Left = 26
+      Height = 32
+      Top = 620
+      Width = 226
       Caption = 'LaguNET bi  /  UI 001'
       Font.Color = 15592941
-      Font.Height = -48
+      Font.Height = -24
       ParentFont = False
       Visible = False
     end
   end
   object Content: TPanel
-    Left = 496
-    Height = 1440
+    Left = 248
+    Height = 720
     Top = 0
-    Width = 1304
-    Align = alClient
+    Width = 652
     BevelOuter = bvNone
-    ClientHeight = 1440
-    ClientWidth = 1304
+    ClientHeight = 720
+    ClientWidth = 652
     Color = 16447733
     ParentBackground = False
     ParentColor = False
     TabOrder = 1
     object Header: TPanel
       Left = 0
-      Height = 128
+      Height = 64
       Top = 0
-      Width = 1304
-      Align = alTop
+      Width = 652
       BevelOuter = bvNone
-      ClientHeight = 128
-      ClientWidth = 1304
+      ClientHeight = 64
+      ClientWidth = 652
       Color = 16313309
       ParentBackground = False
       ParentColor = False
       TabOrder = 13
       object PreviewLabel: TLabel
-        Left = 368
-        Height = 48
-        Top = 40
-        Width = 784
+        Left = 184
+        Height = 24
+        Top = 20
+        Width = 392
         AutoSize = False
         Caption = 'Sin BAT seleccionado'
         Font.Color = 3350804
-        Font.Height = -54
+        Font.Height = -27
         Font.Style = [fsBold]
         ParentFont = False
       end
     end
     object ProfileTitle: TLabel
-      Left = 68
-      Height = 65
-      Top = 156
-      Width = 196
+      Left = 34
+      Height = 32
+      Top = 78
+      Width = 98
       Caption = 'NOMBRE'
       Font.Color = 7760478
-      Font.Height = -48
+      Font.Height = -24
       ParentFont = False
     end
     object NameEdit: TEdit
-      Left = 64
-      Height = 80
-      Top = 196
-      Width = 1160
+      Left = 16
+      Height = 45
+      Top = 100
+      Width = 580
+      Anchors = []
       Enabled = False
-      Font.Height = -54
+      Font.Height = -27
       ParentFont = False
       TabOrder = 0
       OnChange = ConfigurationChanged
     end
     object DescriptionLabel: TLabel
-      Left = 68
-      Height = 65
-      Top = 278
-      Width = 298
+      Left = 34
+      Height = 32
+      Top = 139
+      Width = 147
       Caption = 'DESCRIPCION'
       Font.Color = 7760478
-      Font.Height = -48
+      Font.Height = -24
       ParentFont = False
     end
     object DescriptionEdit: TEdit
-      Left = 64
-      Height = 80
-      Top = 318
-      Width = 1160
-      Font.Height = -54
+      Left = 32
+      Height = 45
+      Top = 159
+      Width = 580
+      Font.Height = -27
       ParentFont = False
       TabOrder = 1
     end
     object AdapterLabel: TLabel
-      Left = 68
-      Height = 65
-      Top = 398
-      Width = 445
+      Left = 34
+      Height = 32
+      Top = 199
+      Width = 220
       Caption = 'ADAPTADOR DE RED'
       Font.Color = 7760478
-      Font.Height = -48
+      Font.Height = -24
       ParentFont = False
     end
     object VirtualFilterBox: TCheckBox
-      Left = 780
+      Left = 390
       Height = 40
-      Top = 390
+      Top = 195
       Width = 366
       Caption = 'Ocultar adaptadores virtuales'
       Checked = True
@@ -208,10 +206,10 @@ object Form1: TForm1
       OnClick = FilterVirtualAdapters
     end
     object Adapter: TComboBox
-      Left = 64
+      Left = 32
       Height = 44
-      Top = 438
-      Width = 876
+      Top = 219
+      Width = 438
       ItemHeight = 36
       ItemIndex = 0
       Items.Strings = (
@@ -224,99 +222,99 @@ object Form1: TForm1
       OnChange = AdapterChanged
     end
     object ReadCurrentButton: TButton
-      Left = 968
-      Height = 68
-      Top = 438
-      Width = 256
+      Left = 484
+      Height = 34
+      Top = 219
+      Width = 128
       Caption = 'Leer actual'
       Enabled = False
       TabOrder = 12
       OnClick = ReadCurrentConfiguration
     end
     object AutomaticBox: TCheckBox
-      Left = 64
+      Left = 32
       Height = 40
-      Top = 508
+      Top = 254
       Width = 614
       Caption = 'Obtener la configuracion automaticamente (DHCP)'
       TabOrder = 3
       OnClick = ToggleAutomatic
     end
     object AddressLabel: TLabel
-      Left = 68
-      Height = 72
-      Top = 572
-      Width = 283
+      Left = 34
+      Height = 37
+      Top = 286
+      Width = 140
       Caption = 'Direccion IP'
       Font.Color = 3350804
-      Font.Height = -54
+      Font.Height = -27
       ParentFont = False
     end
     object AddressEdit: TEdit
-      Left = 64
-      Height = 85
-      Top = 614
-      Width = 520
-      Font.Height = -58
+      Left = 32
+      Height = 48
+      Top = 307
+      Width = 260
+      Font.Height = -29
       ParentFont = False
       TabOrder = 4
       OnChange = ConfigurationChanged
       OnExit = AutoFillMask
     end
     object MaskLabel: TLabel
-      Left = 652
-      Height = 72
-      Top = 572
-      Width = 451
+      Left = 326
+      Height = 37
+      Top = 286
+      Width = 223
       Caption = 'Mascara de subred'
       Font.Color = 3350804
-      Font.Height = -54
+      Font.Height = -27
       ParentFont = False
     end
     object MaskEdit: TEdit
-      Left = 648
-      Height = 85
-      Top = 614
-      Width = 576
-      Font.Height = -58
+      Left = 324
+      Height = 48
+      Top = 307
+      Width = 288
+      Font.Height = -29
       ParentFont = False
       TabOrder = 5
       OnChange = ConfigurationChanged
     end
     object GatewayLabel: TLabel
-      Left = 68
-      Height = 72
-      Top = 704
-      Width = 395
+      Left = 34
+      Height = 37
+      Top = 352
+      Width = 196
       Caption = 'Puerta de enlace'
       Font.Color = 3350804
-      Font.Height = -54
+      Font.Height = -27
       ParentFont = False
     end
     object GatewayEdit: TEdit
-      Left = 64
-      Height = 85
-      Top = 750
-      Width = 520
-      Font.Height = -58
+      Left = 32
+      Height = 48
+      Top = 375
+      Width = 260
+      Font.Height = -29
       ParentFont = False
       TabOrder = 6
       OnChange = ConfigurationChanged
     end
     object WifiBox: TCheckBox
-      Left = 648
+      Left = 324
       Height = 40
-      Top = 704
+      Top = 352
       Width = 265
       Caption = 'Conectar a red Wi-Fi'
       TabOrder = 7
       OnClick = ToggleWifi
     end
     object WifiCombo: TComboBox
-      Left = 648
+      Left = 324
       Height = 44
-      Top = 750
-      Width = 576
+      Top = 375
+      Width = 288
       ItemHeight = 36
       ItemIndex = 0
       Items.Strings = (
@@ -330,52 +328,52 @@ object Form1: TForm1
       OnChange = ConfigurationChanged
     end
     object PingBox: TCheckBox
-      Left = 64
+      Left = 32
       Height = 40
-      Top = 862
+      Top = 431
       Width = 137
       Caption = 'Test Ping'
       TabOrder = 9
       OnClick = TogglePing
     end
     object PingEdit: TEdit
-      Left = 64
-      Height = 85
-      Top = 912
-      Width = 1160
-      Font.Height = -58
+      Left = 32
+      Height = 48
+      Top = 456
+      Width = 580
+      Font.Height = -29
       ParentFont = False
       TabOrder = 10
       OnChange = ConfigurationChanged
     end
     object Footer: TPanel
-      Left = 64
-      Height = 388
-      Top = 1020
-      Width = 1160
+      Left = 32
+      Height = 194
+      Top = 510
+      Width = 580
       BevelOuter = bvNone
-      ClientHeight = 388
-      ClientWidth = 1160
+      ClientHeight = 194
+      ClientWidth = 580
       Color = clWhite
       ParentBackground = False
       ParentColor = False
       TabOrder = 14
       object BatContentLabel: TLabel
-        Left = 28
-        Height = 65
-        Top = 16
-        Width = 577
+        Left = 14
+        Height = 32
+        Top = 8
+        Width = 287
         Caption = 'CONTENIDO REAL DEL BAT'
         Font.Color = 7760478
-        Font.Height = -48
+        Font.Height = -24
         ParentFont = False
       end
       object BatMemo: TMemo
-        Left = 28
-        Height = 156
-        Top = 56
-        Width = 1104
-        Font.Height = -48
+        Left = 14
+        Height = 78
+        Top = 28
+        Width = 552
+        Font.Height = -24
         Font.Name = 'Consolas'
         ParentFont = False
         ReadOnly = True
@@ -384,39 +382,39 @@ object Form1: TForm1
         WordWrap = False
       end
       object PingProgress: TProgressBar
-        Left = 28
-        Height = 20
-        Top = 224
-        Width = 1104
+        Left = 14
+        Height = 10
+        Top = 112
+        Width = 552
         Max = 10
         TabOrder = 3
         Visible = False
       end
       object StatusLabel: TLabel
-        Left = 28
-        Height = 40
-        Top = 252
-        Width = 1104
+        Left = 14
+        Height = 20
+        Top = 126
+        Width = 552
         AutoSize = False
         Caption = 'Selecciona un script.'
         Font.Color = 7760478
-        Font.Height = -48
+        Font.Height = -24
         ParentFont = False
       end
       object SaveButton: TButton
-        Left = 28
-        Height = 84
-        Top = 300
-        Width = 440
+        Left = 14
+        Height = 42
+        Top = 150
+        Width = 220
         Caption = 'Guardar'
         TabOrder = 0
         OnClick = SaveScriptConfiguration
       end
       object ApplyButton: TButton
-        Left = 692
-        Height = 84
-        Top = 300
-        Width = 440
+        Left = 336
+        Height = 42
+        Top = 128
+        Width = 220
         Caption = 'Establecer'
         TabOrder = 1
         OnClick = PreviewAction
@@ -424,8 +422,8 @@ object Form1: TForm1
     end
   end
   object TrayMenu: TPopupMenu
-    Left = 160
-    Top = 1328
+    Left = 80
+    Top = 664
     object ShowMenuItem: TMenuItem
       Caption = 'Abrir app'
       Default = True
@@ -8901,7 +8899,7 @@ object Form1: TForm1
     Hint = 'LaguNET bi'
     OnClick = ShowScriptsPopup
     OnDblClick = ShowScriptsPopup
-    Left = 288
-    Top = 1328
+    Left = 144
+    Top = 664
   end
 end

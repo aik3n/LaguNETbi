@@ -38,6 +38,7 @@ begin
     Halt(0);
 
   RequireDerivedFormResource:=True;
+  Application.Scaled:=False;
   {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar:=True;
   {$POP}
