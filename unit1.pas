@@ -56,20 +56,6 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure ShowNearTray;
   end;
 
-  TAboutForm = class(TForm)
-  private
-    FStartupCheck: TCheckBox;
-    FShowBatContentCheck: TCheckBox;
-    FStartupStatus: TLabel;
-    FUpdating: Boolean;
-    procedure StartupChanged(Sender: TObject);
-    procedure ShowBatContentChanged(Sender: TObject);
-    procedure OpenRepository(Sender: TObject);
-    procedure RefreshStartupState;
-  public
-    constructor CreateHelp(AOwner: TComponent);
-  end;
-
 
   TConfigurationValidation = record
     AdapterOK: Boolean;
@@ -165,6 +151,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure AutoFillMask(Sender: TObject);
     procedure SaveScriptConfiguration(Sender: TObject);
     procedure PreviewAction(Sender: TObject);
+    procedure SettingsBatContentChanged(Sender: TObject);
     procedure ShowHelpWindow(Sender: TObject);
   private
     FExiting: Boolean;
@@ -241,7 +228,7 @@ var
 implementation
 
 uses
-  uWindowsSupport;
+  uWindowsSupport, uSettingsForm;
 
 {$R *.lfm}
 
@@ -285,245 +272,6 @@ procedure WlanFreeMemory(
 ); stdcall; external 'wlanapi.dll' name 'WlanFreeMemory';
 
 
-
-constructor TAboutForm.CreateHelp(AOwner: TComponent);
-var
-  TitleLabel, SubtitleLabel, IntroLabel: TLabel;
-  StartupGroup, CreditsGroup: TGroupBox;
-  CreditsLabel: TLabel;
-  RepoButton, CloseButton: TButton;
-begin
-  inherited CreateNew(AOwner, 1);
-
-  Caption := 'Ayuda / Acerca de';
-  ClientWidth := 520;
-  ClientHeight := 440;
-  Position := poOwnerFormCenter;
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
-  Color := clWhite;
-  Font.Name := 'Segoe UI';
-  Font.Size := 10;
-
-  if Assigned(Application.Icon) then
-    Icon.Assign(Application.Icon);
-
-  TitleLabel := TLabel.Create(Self);
-  TitleLabel.Parent := Self;
-  TitleLabel.SetBounds(24, 20, 470, 32);
-  TitleLabel.Caption := 'LaguNETbi';
-  TitleLabel.Font.Size := 20;
-  TitleLabel.Font.Style := [fsBold];
-  TitleLabel.ParentFont := False;
-
-  SubtitleLabel := TLabel.Create(Self);
-  SubtitleLabel.Parent := Self;
-  SubtitleLabel.SetBounds(26, 54, 465, 24);
-  SubtitleLabel.Caption := 'Configuracion rapida de red para Windows';
-  SubtitleLabel.Font.Color := $00666666;
-  SubtitleLabel.ParentFont := False;
-
-  IntroLabel := TLabel.Create(Self);
-  IntroLabel.Parent := Self;
-  IntroLabel.SetBounds(26, 84, 465, 38);
-  IntroLabel.AutoSize := False;
-  IntroLabel.WordWrap := True;
-  IntroLabel.Caption :=
-    'Pensado para cambiar configuraciones de red muchas veces al dia ' +
-    'sin convertir LaguNETbi en un ejecutor de comandos arbitrarios.';
-
-  StartupGroup := TGroupBox.Create(Self);
-  StartupGroup.Parent := Self;
-  StartupGroup.SetBounds(24, 132, 472, 142);
-  StartupGroup.Caption := ' Inicio con Windows ';
-
-  FStartupCheck := TCheckBox.Create(Self);
-  FStartupCheck.Parent := StartupGroup;
-  FStartupCheck.SetBounds(16, 26, 430, 24);
-  FStartupCheck.Caption :=
-    'Iniciar con Windows con permisos de administrador';
-  FStartupCheck.OnClick := @StartupChanged;
-
-
-  FShowBatContentCheck := TCheckBox.Create(Self);
-
-  FShowBatContentCheck.Parent := StartupGroup;
-
-  FShowBatContentCheck.SetBounds(16, 56, 430, 24);
-
-  FShowBatContentCheck.Caption := 'Mostrar contenido del BAT';
-
-  if AOwner is TForm1 then
-
-    FShowBatContentCheck.Checked := TForm1(AOwner).BatMemo.Visible
-
-  else
-
-    FShowBatContentCheck.Checked := True;
-
-  FShowBatContentCheck.OnClick := @ShowBatContentChanged;
-  FStartupStatus := TLabel.Create(Self);
-  FStartupStatus.Parent := StartupGroup;
-  FStartupStatus.SetBounds(16, 84, 430, 42);
-  FStartupStatus.AutoSize := False;
-  FStartupStatus.WordWrap := True;
-  FStartupStatus.Font.Size := 9;
-  FStartupStatus.Font.Color := $00666666;
-  FStartupStatus.ParentFont := False;
-
-  CreditsGroup := TGroupBox.Create(Self);
-  CreditsGroup.Parent := Self;
-  CreditsGroup.SetBounds(24, 286, 472, 96);
-  CreditsGroup.Caption := ' Acerca de / creditos ';
-
-  CreditsLabel := TLabel.Create(Self);
-  CreditsLabel.Parent := CreditsGroup;
-  CreditsLabel.SetBounds(16, 24, 300, 58);
-  CreditsLabel.AutoSize := False;
-  CreditsLabel.WordWrap := True;
-  CreditsLabel.Caption :=
-    'LaguNETbi: reescritura en Lazarus / Free Pascal.' + LineEnding +
-    'Basado en el proyecto original LaguNET.' + LineEnding +
-    'Proyecto de codigo abierto.';
-
-  RepoButton := TButton.Create(Self);
-  RepoButton.Parent := CreditsGroup;
-  RepoButton.SetBounds(330, 34, 122, 34);
-  RepoButton.Caption := 'Abrir GitHub';
-  RepoButton.OnClick := @OpenRepository;
-
-  CloseButton := TButton.Create(Self);
-  CloseButton.Parent := Self;
-  CloseButton.SetBounds(376, 394, 120, 34);
-  CloseButton.Caption := 'Cerrar';
-  CloseButton.ModalResult := mrOk;
-  CloseButton.Default := True;
-
-  RefreshStartupState;
-end;
-
-procedure TAboutForm.RefreshStartupState;
-begin
-  FUpdating := True;
-  try
-    FStartupCheck.Checked := LaguNETbiStartupTaskExists;
-
-    if FStartupCheck.Checked then
-    begin
-      if LaguNETbiIsElevated then
-        FStartupStatus.Caption :=
-          'Activo. LaguNETbi se ha iniciado con privilegios y no necesita ' +
-          'pedir permiso para cada cambio de red.'
-      else
-        FStartupStatus.Caption :=
-          'Activo para el proximo inicio de LaguNETbi. La sesion actual ' +
-          'seguira pidiendo permiso cuando una operacion lo necesite.';
-    end
-    else
-    begin
-      if LaguNETbiIsElevated then
-        FStartupStatus.Caption :=
-          'Desactivado para proximos inicios. Esta sesion conserva sus ' +
-          'privilegios hasta que salgas de LaguNETbi.'
-      else
-        FStartupStatus.Caption :=
-          'Desactivado. LaguNETbi solo pedira permiso cuando una operacion ' +
-          'de red necesite privilegios.';
-    end;
-  finally
-    FUpdating := False;
-  end;
-end;
-
-procedure TAboutForm.StartupChanged(Sender: TObject);
-var
-  Wanted: Boolean;
-  ErrorText: String;
-begin
-  if FUpdating then
-    Exit;
-
-  Wanted := FStartupCheck.Checked;
-  FStartupCheck.Enabled := False;
-  FStartupStatus.Caption := 'Aplicando...';
-  Application.ProcessMessages;
-
-  try
-    if not LaguNETbiChangeStartupTask(Wanted, ErrorText) then
-    begin
-      MessageDlg(
-        'No se pudo cambiar el inicio con Windows.' + LineEnding +
-        ErrorText,
-        mtError, [mbOK], 0
-      );
-    end;
-  finally
-    FStartupCheck.Enabled := True;
-    RefreshStartupState;
-  end;
-end;
-
-procedure TAboutForm.ShowBatContentChanged(Sender: TObject);
-
-var
-
-  MainForm: TForm1;
-
-  Ini: TIniFile;
-
-begin
-
-  if not (Owner is TForm1) then
-
-    Exit;
-
-
-
-  MainForm := TForm1(Owner);
-
-  MainForm.SetBatPreviewExpanded(FShowBatContentCheck.Checked);
-
-
-
-  if MainForm.FIniPath <> '' then
-
-  begin
-
-    Ini := TIniFile.Create(MainForm.FIniPath);
-
-    try
-
-      Ini.WriteBool(
-
-        'Layout',
-
-        'BatPreviewExpanded',
-
-        FShowBatContentCheck.Checked
-
-      );
-
-    finally
-
-      Ini.Free;
-
-    end;
-
-  end;
-
-end;
-
-procedure TAboutForm.OpenRepository(Sender: TObject);
-begin
-  ShellExecute(
-    Handle,
-    'open',
-    'https://github.com/aik3n/LaguNETbi',
-    nil,
-    nil,
-    SW_SHOWNORMAL
-  );
-end;
 
 constructor TQuickForm.CreatePopup(AOwner: TComponent);
 begin
@@ -762,10 +510,14 @@ begin
 
   FContextNode := nil;
   FScriptMenu := TPopupMenu.Create(Self);
-  FEditScriptMenuItem := TMenuItem.Create(FScriptMenu);
-  FEditScriptMenuItem.Caption := 'Editar BAT';
-  FEditScriptMenuItem.OnClick := @EditScript;
-  FScriptMenu.Items.Add(FEditScriptMenuItem);
+  FEditScriptMenuItem := TMenuItem.Create(FScriptMenu);
+
+  FEditScriptMenuItem.Caption := 'Editar BAT';
+
+  FEditScriptMenuItem.OnClick := @EditScript;
+
+  FScriptMenu.Items.Add(FEditScriptMenuItem);
+
   FOpenLocationMenuItem := TMenuItem.Create(FScriptMenu);
   FOpenLocationMenuItem.Caption := 'Abrir ubicacion';
   FOpenLocationMenuItem.OnClick := @OpenScriptLocation;
@@ -2288,29 +2040,52 @@ begin
     CountLabel.Caption := IntToStr(N) + ' scripts';
 end;
 
-procedure TForm1.EditScript(Sender: TObject);
-var
-  TargetPath, Params: String;
-begin
-  if not IsScriptNode(FContextNode) then
-    Exit;
-
-  TargetPath := ScriptNodePath(FContextNode);
-  if not FileExists(TargetPath) then
-    Exit;
-
-  { Abrimos explicitamente como texto. No usamos la asociacion .bat
-    para evitar cualquier posibilidad de ejecutarlo. }
-  Params := '"' + TargetPath + '"';
-  ShellExecute(
-    Handle,
-    'open',
-    'notepad.exe',
-    PChar(Params),
-    nil,
-    SW_SHOWNORMAL
-  );
-end;
+procedure TForm1.EditScript(Sender: TObject);
+
+var
+
+  TargetPath, Params: String;
+
+begin
+
+  if not IsScriptNode(FContextNode) then
+
+    Exit;
+
+
+
+  TargetPath := ScriptNodePath(FContextNode);
+
+  if not FileExists(TargetPath) then
+
+    Exit;
+
+
+
+  { Abrimos explicitamente como texto. No usamos la asociacion .bat
+
+    para evitar cualquier posibilidad de ejecutarlo. }
+
+  Params := '"' + TargetPath + '"';
+
+  ShellExecute(
+
+    Handle,
+
+    'open',
+
+    'notepad.exe',
+
+    PChar(Params),
+
+    nil,
+
+    SW_SHOWNORMAL
+
+  );
+
+end;
+
 procedure TForm1.OpenScriptLocation(Sender: TObject);
 var
   TargetPath, Params: String;
@@ -2584,9 +2359,9 @@ begin
 
 
 
-  { Altura real de la seccion BAT: desde su titulo hasta el final del Memo.
+  { Altura real de la seccion BAT: desde el titulo hasta el final del Memo.
 
-    Si cambias posicion o altura del Memo en Lazarus, el calculo se adapta. }
+    Si cambias su posicion o altura en Lazarus, el calculo se adapta. }
 
   Delta := (BatMemo.Top + BatMemo.Height) - BatContentLabel.Top;
 
@@ -2599,8 +2374,6 @@ begin
   if AExpanded then
 
   begin
-
-    Footer.Height := Footer.Height + Delta;
 
     ClientHeight := ClientHeight + Delta;
 
@@ -2618,14 +2391,11 @@ begin
 
     BatContentLabel.Visible := False;
 
-    Footer.Height := Footer.Height - Delta;
-
     ClientHeight := ClientHeight - Delta;
 
   end;
 
-end;
-procedure TForm1.ToggleAutomatic(Sender: TObject);
+end;procedure TForm1.ToggleAutomatic(Sender: TObject);
 begin
   AddressEdit.Enabled := not AutomaticBox.Checked;
   MaskEdit.Enabled := not AutomaticBox.Checked;
@@ -3166,17 +2936,44 @@ begin
   end;
 end;
 
-procedure TForm1.ShowHelpWindow(Sender: TObject);
-var
-  HelpForm: TAboutForm;
-begin
-  HelpForm := TAboutForm.CreateHelp(Self);
-  try
-    HelpForm.ShowModal;
-  finally
-    HelpForm.Free;
-  end;
+procedure TForm1.SettingsBatContentChanged(Sender: TObject);
+var
+  SettingsDialog: TSettingsForm;
+  Ini: TIniFile;
+begin
+  if not (Sender is TSettingsForm) then
+    Exit;
+
+  SettingsDialog := TSettingsForm(Sender);
+  SetBatPreviewExpanded(SettingsDialog.ShowBatContent);
+
+  if FIniPath <> '' then
+  begin
+    Ini := TIniFile.Create(FIniPath);
+    try
+      Ini.WriteBool(
+        'Layout',
+        'BatPreviewExpanded',
+        SettingsDialog.ShowBatContent
+      );
+    finally
+      Ini.Free;
+    end;
+  end;
+end;
+
+procedure TForm1.ShowHelpWindow(Sender: TObject);
+var
+  SettingsDialog: TSettingsForm;
+begin
+  SettingsDialog := TSettingsForm.Create(Self);
+  try
+    SettingsDialog.ShowBatContent := BatMemo.Visible;
+    SettingsDialog.OnShowBatContentChanged := @SettingsBatContentChanged;
+    SettingsDialog.ShowModal;
+  finally
+    SettingsDialog.Free;
+  end;
 end;
-
 
 end.
