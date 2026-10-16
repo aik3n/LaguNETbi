@@ -594,7 +594,7 @@ var
 begin
   FHelpButton := TSpeedButton.Create(Self);
   FHelpButton.Parent := Header;
-  FHelpButton.SetBounds(592, 8, 48, 48);
+  FHelpButton.SetBounds(1144, 18, 64, 64);
   FHelpButton.Flat := True;
   FHelpButton.Caption := '';
   FHelpButton.Hint := 'Informacion';
@@ -662,7 +662,7 @@ begin
 
   FBrandImage := TImage.Create(Self);
   FBrandImage.Parent := Header;
-  FBrandImage.SetBounds(16, 8, 152, 48);
+  FBrandImage.SetBounds(20, 14, 250, 72);
   FBrandImage.Stretch := True;
   FBrandImage.Proportional := True;
   FBrandImage.Center := True;
@@ -744,56 +744,59 @@ begin
   FQuickForm.ShowNearTray;
 end;
 
-procedure TForm1.CreateScriptImages;
-var
-  Bmp: TBitmap;
-begin
-  if Assigned(FScriptImages) then
-  begin
-    ScriptTree.Images := FScriptImages;
-    Exit;
-  end;
-
-  FScriptImages := TImageList.Create(Self);
-  FScriptImages.Width := 16;
-  FScriptImages.Height := 16;
-
-  Bmp := TBitmap.Create;
-  try
-    Bmp.SetSize(16, 16);
-    Bmp.Transparent := True;
-    Bmp.TransparentColor := clFuchsia;
-
-    { icono 0 = carpeta }
-    Bmp.Canvas.Brush.Color := clFuchsia;
-    Bmp.Canvas.FillRect(0, 0, 16, 16);
-    Bmp.Canvas.Pen.Color := $2A5CAA;
-    Bmp.Canvas.Brush.Color := $8EC5FF;
-    Bmp.Canvas.Rectangle(1, 5, 15, 14);
-    Bmp.Canvas.Brush.Color := $B8DCFF;
-    Bmp.Canvas.Rectangle(2, 3, 8, 7);
-    FScriptImages.AddMasked(Bmp, clFuchsia);
-
-    { icono 1 = script/documento }
-    Bmp.Canvas.Brush.Color := clFuchsia;
-    Bmp.Canvas.FillRect(0, 0, 16, 16);
-    Bmp.Canvas.Pen.Color := $7A6A4F;
-    Bmp.Canvas.Brush.Color := clWhite;
-    Bmp.Canvas.Rectangle(3, 1, 13, 15);
-    Bmp.Canvas.Brush.Color := $D9E8FF;
-    Bmp.Canvas.Polygon([Point(9,1), Point(12,1), Point(12,4)]);
-    Bmp.Canvas.Pen.Color := $B2552A;
-    Bmp.Canvas.Line(5, 6, 11, 6);
-    Bmp.Canvas.Line(5, 8, 11, 8);
-    Bmp.Canvas.Line(5, 10, 11, 10);
-    FScriptImages.AddMasked(Bmp, clFuchsia);
-  finally
-    Bmp.Free;
-  end;
-
-  ScriptTree.Images := FScriptImages;
-end;
-
+procedure TForm1.CreateScriptImages;
+var
+  Bmp: TBitmap;
+begin
+  if Assigned(FScriptImages) then
+  begin
+    ScriptTree.Images := FScriptImages;
+    Exit;
+  end;
+
+  FScriptImages := TImageList.Create(Self);
+  FScriptImages.Width := 32;
+  FScriptImages.Height := 32;
+
+  Bmp := TBitmap.Create;
+  try
+    Bmp.SetSize(32, 32);
+    Bmp.Transparent := True;
+    Bmp.TransparentColor := clFuchsia;
+
+    { icono 0 = carpeta }
+    Bmp.Canvas.Brush.Color := clFuchsia;
+    Bmp.Canvas.FillRect(0, 0, 32, 32);
+    Bmp.Canvas.Pen.Color := $2A5CAA;
+    Bmp.Canvas.Brush.Color := $8EC5FF;
+    Bmp.Canvas.Rectangle(2, 10, 30, 28);
+    Bmp.Canvas.Brush.Color := $B8DCFF;
+    Bmp.Canvas.Rectangle(4, 6, 16, 14);
+    FScriptImages.AddMasked(Bmp, clFuchsia);
+
+    { icono 1 = script/documento }
+    Bmp.Canvas.Brush.Color := clFuchsia;
+    Bmp.Canvas.FillRect(0, 0, 32, 32);
+    Bmp.Canvas.Pen.Color := $7A6A4F;
+    Bmp.Canvas.Brush.Color := clWhite;
+    Bmp.Canvas.Rectangle(6, 2, 26, 30);
+    Bmp.Canvas.Brush.Color := $D9E8FF;
+    Bmp.Canvas.Polygon([
+      Point(18, 2),
+      Point(24, 2),
+      Point(24, 8)
+    ]);
+    Bmp.Canvas.Pen.Color := $B2552A;
+    Bmp.Canvas.Line(10, 12, 22, 12);
+    Bmp.Canvas.Line(10, 16, 22, 16);
+    Bmp.Canvas.Line(10, 20, 22, 20);
+    FScriptImages.AddMasked(Bmp, clFuchsia);
+  finally
+    Bmp.Free;
+  end;
+
+  ScriptTree.Images := FScriptImages;
+end;
 function TForm1.ReadScriptDescription(const AFileName: String): String;
 const
   Prefix = ':: description=';
