@@ -376,11 +376,25 @@ object Form1: TForm1
       ParentBackground = False
       ParentColor = False
       TabOrder = 13
-      object BatContentLabel: TLabel
+      object BatToggleButton: TSpeedButton
         Left = 18
+        Height = 36
+        Hint = 'Ocultar o mostrar contenido del BAT'
+        Top = 176
+        Width = 32
+        Caption = 'â–¼'
+        Flat = True
+        Font.Height = -22
+        ShowHint = True
+        ParentFont = False
+        ParentShowHint = False
+        OnClick = ToggleBatPreview
+      end
+      object BatContentLabel: TLabel
+        Left = 72
         Height = 32
-        Top = 14
-        Width = 1168
+        Top = 176
+        Width = 1104
         Anchors = [akTop, akLeft, akRight]
         Caption = 'CONTENIDO REAL DEL BAT'
         Font.Color = 7760478
@@ -389,8 +403,8 @@ object Form1: TForm1
       end
       object BatMemo: TMemo
         Left = 18
-        Height = 138
-        Top = 52
+        Height = 154
+        Top = 224
         Width = 1144
         Anchors = [akTop, akLeft, akRight]
         Font.Height = -24
@@ -402,9 +416,9 @@ object Form1: TForm1
         WordWrap = False
       end
       object PingProgress: TProgressBar
-        Left = 18
+        Left = 8
         Height = 14
-        Top = 202
+        Top = 10
         Width = 1168
         Anchors = [akTop, akLeft, akRight]
         Max = 10
@@ -412,9 +426,9 @@ object Form1: TForm1
         Visible = False
       end
       object StatusLabel: TLabel
-        Left = 18
+        Left = 16
         Height = 34
-        Top = 344
+        Top = 120
         Width = 1168
         Anchors = [akTop, akLeft, akRight]
         AutoSize = False
@@ -424,18 +438,18 @@ object Form1: TForm1
         ParentFont = False
       end
       object SaveButton: TButton
-        Left = 18
+        Left = 8
         Height = 48
-        Top = 232
+        Top = 48
         Width = 360
         Caption = 'Guardar'
         TabOrder = 0
         OnClick = SaveScriptConfiguration
       end
       object ApplyButton: TButton
-        Left = 800
+        Left = 464
         Height = 48
-        Top = 232
+        Top = 48
         Width = 360
         Anchors = [akTop, akRight]
         Caption = 'Establecer'

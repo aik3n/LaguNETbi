@@ -107,6 +107,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     DescriptionLabel: TLabel;
     DescriptionEdit: TEdit;
     BatContentLabel: TLabel;
+    BatToggleButton: TSpeedButton;
     BatMemo: TMemo;
     AdapterLabel: TLabel;
     Adapter: TComboBox;
@@ -154,6 +155,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure ToggleAutomatic(Sender: TObject);
     procedure ToggleWifi(Sender: TObject);
     procedure TogglePing(Sender: TObject);
+    procedure ToggleBatPreview(Sender: TObject);
     procedure ConfigurationChanged(Sender: TObject);
     procedure AdapterChanged(Sender: TObject);
     procedure ReadCurrentConfiguration(Sender: TObject);
@@ -178,6 +180,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FAdapterTypes: TStringList;
     FAdapterGuids: TStringList;
     procedure CreateScriptImages;
+    procedure SetBatPreviewExpanded(AExpanded: Boolean);
     procedure EnumerateNetworkAdapters;
     function IsLikelyVirtualAdapter(const FriendlyName,
       Description: String): Boolean;
@@ -643,6 +646,7 @@ begin
     try
 
       Sidebar.Width := Ini.ReadInteger('Layout', 'SidebarWidth', Sidebar.Width);
+      SetBatPreviewExpanded(Ini.ReadBool('Layout', 'BatPreviewExpanded', True));
 
     finally
 
@@ -650,7 +654,10 @@ begin
 
     end;
 
-  end;
+  end
+
+  else
+    SetBatPreviewExpanded(True);
 
   ForceDirectories(FScriptsPath);
 
@@ -713,6 +720,7 @@ begin
     try
 
       Ini.WriteInteger('Layout', 'SidebarWidth', Sidebar.Width);
+      Ini.WriteBool('Layout', 'BatPreviewExpanded', BatMemo.Visible);
 
     finally
 
@@ -2453,6 +2461,86 @@ begin
     FQuickForm.RefreshScripts(FScriptsPath);
 
   StatusLabel.Caption := 'Movido: ' + ExtractFileName(DestPath);
+end;
+
+procedure TForm1.SetBatPreviewExpanded(AExpanded: Boolean);
+
+var
+
+  Delta: Integer;
+
+begin
+
+  BatToggleButton.Caption := 'â–¼';
+
+  if not AExpanded then
+
+    BatToggleButton.Caption := 'â–¶';
+
+
+
+  if BatMemo.Visible = AExpanded then
+
+    Exit;
+
+
+
+  { La distancia se obtiene de la maquetacion ya escalada por Lazarus.
+
+    No hay coordenadas DPI fijas en el codigo. }
+
+  Delta := BatMemo.Height +
+
+    (PingProgress.Top - (BatMemo.Top + BatMemo.Height));
+
+
+
+  if AExpanded then
+
+  begin
+
+    BatMemo.Visible := True;
+
+    PingProgress.Top := PingProgress.Top + Delta;
+
+    SaveButton.Top := SaveButton.Top + Delta;
+
+    ApplyButton.Top := ApplyButton.Top + Delta;
+
+    StatusLabel.Top := StatusLabel.Top + Delta;
+
+    Footer.Height := Footer.Height + Delta;
+
+  end
+
+  else
+
+  begin
+
+    BatMemo.Visible := False;
+
+    PingProgress.Top := PingProgress.Top - Delta;
+
+    SaveButton.Top := SaveButton.Top - Delta;
+
+    ApplyButton.Top := ApplyButton.Top - Delta;
+
+    StatusLabel.Top := StatusLabel.Top - Delta;
+
+    Footer.Height := Footer.Height - Delta;
+
+  end;
+
+end;
+
+
+
+procedure TForm1.ToggleBatPreview(Sender: TObject);
+
+begin
+
+  SetBatPreviewExpanded(not BatMemo.Visible);
+
 end;
 
 procedure TForm1.ToggleAutomatic(Sender: TObject);
