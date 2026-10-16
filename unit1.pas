@@ -94,14 +94,14 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
   end;
 
   TForm1 = class(TForm)
-    BrandLabel: TLabel;
-    TaglineLabel: TLabel;
     ProfilesLabel: TLabel;
     ScriptTree: TTreeView;
     CountLabel: TLabel;
-    VersionLabel: TLabel;
     PreviewLabel: TLabel;
     Header: TPanel;
+    BrandImage: TImage;
+    HelpButton: TSpeedButton;
+    MainSplitter: TSplitter;
     ProfileTitle: TLabel;
     NameEdit: TEdit;
     DescriptionLabel: TLabel;
@@ -172,8 +172,6 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FScriptMenu: TPopupMenu;
     FOpenLocationMenuItem: TMenuItem;
     FScriptImages: TImageList;
-    FBrandImage: TImage;
-    FHelpButton: TSpeedButton;
     FIniPath: String;
     FDescriptionPaths: TStringList;
     FDescriptionTexts: TStringList;
@@ -591,17 +589,8 @@ procedure TForm1.FormCreate(Sender: TObject);
 var
   LogoPath: String;
   InfoBmp: TBitmap;
+  Ini: TIniFile;
 begin
-  FHelpButton := TSpeedButton.Create(Self);
-  FHelpButton.Parent := Header;
-  FHelpButton.SetBounds(1144, 18, 64, 64);
-  FHelpButton.Flat := True;
-  FHelpButton.Caption := '';
-  FHelpButton.Hint := 'Informacion';
-  FHelpButton.ShowHint := True;
-  FHelpButton.Cursor := crHandPoint;
-  FHelpButton.OnClick := @ShowHelpWindow;
-
   InfoBmp := TBitmap.Create;
   try
     InfoBmp.SetSize(30, 30);
@@ -626,7 +615,7 @@ begin
     { Cuerpo de la i. }
     InfoBmp.Canvas.Rectangle(13, 13, 17, 23);
 
-    FHelpButton.Glyph.Assign(InfoBmp);
+    HelpButton.Glyph.Assign(InfoBmp);
   finally
     InfoBmp.Free;
   end;
@@ -645,6 +634,24 @@ begin
 
   FScriptsPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'scripts';
   FIniPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'LaguNETbi.ini';
+  if FileExists(FIniPath) then
+
+  begin
+
+    Ini := TIniFile.Create(FIniPath);
+
+    try
+
+      Sidebar.Width := Ini.ReadInteger('Layout', 'SidebarWidth', Sidebar.Width);
+
+    finally
+
+      Ini.Free;
+
+    end;
+
+  end;
+
   ForceDirectories(FScriptsPath);
 
   FDescriptionPaths := TStringList.Create;
@@ -660,28 +667,17 @@ begin
   LogoPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
     'assets' + PathDelim + 'LaguNET bi logo.png';
 
-  FBrandImage := TImage.Create(Self);
-  FBrandImage.Parent := Header;
-  FBrandImage.SetBounds(20, 14, 250, 72);
-  FBrandImage.Stretch := True;
-  FBrandImage.Proportional := True;
-  FBrandImage.Center := True;
-  FBrandImage.Transparent := True;
-
   if FileExists(LogoPath) then
   begin
     try
-      FBrandImage.Picture.LoadFromFile(LogoPath);
-      BrandLabel.Visible := False;
+      BrandImage.Picture.LoadFromFile(LogoPath);
     except
-      FBrandImage.Visible := False;
-      BrandLabel.Visible := True;
+      BrandImage.Visible := False;
     end;
   end
   else
   begin
-    FBrandImage.Visible := False;
-    BrandLabel.Visible := True;
+    BrandImage.Visible := False;
   end;
 
   FContextNode := nil;
@@ -705,7 +701,27 @@ begin
 end;
 
 procedure TForm1.FormClose(Sender: TObject; var CloseAction: TCloseAction);
+var
+  Ini: TIniFile;
 begin
+  if FIniPath <> '' then
+
+  begin
+
+    Ini := TIniFile.Create(FIniPath);
+
+    try
+
+      Ini.WriteInteger('Layout', 'SidebarWidth', Sidebar.Width);
+
+    finally
+
+      Ini.Free;
+
+    end;
+
+  end;
+
   SaveExpandedFolders;
 
   if FExiting or not FTrayReady then
@@ -744,59 +760,112 @@ begin
   FQuickForm.ShowNearTray;
 end;
 
-procedure TForm1.CreateScriptImages;
-var
-  Bmp: TBitmap;
-begin
-  if Assigned(FScriptImages) then
-  begin
-    ScriptTree.Images := FScriptImages;
-    Exit;
-  end;
-
-  FScriptImages := TImageList.Create(Self);
-  FScriptImages.Width := 32;
-  FScriptImages.Height := 32;
-
-  Bmp := TBitmap.Create;
-  try
-    Bmp.SetSize(32, 32);
-    Bmp.Transparent := True;
-    Bmp.TransparentColor := clFuchsia;
-
-    { icono 0 = carpeta }
-    Bmp.Canvas.Brush.Color := clFuchsia;
-    Bmp.Canvas.FillRect(0, 0, 32, 32);
-    Bmp.Canvas.Pen.Color := $2A5CAA;
-    Bmp.Canvas.Brush.Color := $8EC5FF;
-    Bmp.Canvas.Rectangle(2, 10, 30, 28);
-    Bmp.Canvas.Brush.Color := $B8DCFF;
-    Bmp.Canvas.Rectangle(4, 6, 16, 14);
-    FScriptImages.AddMasked(Bmp, clFuchsia);
-
-    { icono 1 = script/documento }
-    Bmp.Canvas.Brush.Color := clFuchsia;
-    Bmp.Canvas.FillRect(0, 0, 32, 32);
-    Bmp.Canvas.Pen.Color := $7A6A4F;
-    Bmp.Canvas.Brush.Color := clWhite;
-    Bmp.Canvas.Rectangle(6, 2, 26, 30);
-    Bmp.Canvas.Brush.Color := $D9E8FF;
-    Bmp.Canvas.Polygon([
-      Point(18, 2),
-      Point(24, 2),
-      Point(24, 8)
-    ]);
-    Bmp.Canvas.Pen.Color := $B2552A;
-    Bmp.Canvas.Line(10, 12, 22, 12);
-    Bmp.Canvas.Line(10, 16, 22, 16);
-    Bmp.Canvas.Line(10, 20, 22, 20);
-    FScriptImages.AddMasked(Bmp, clFuchsia);
-  finally
-    Bmp.Free;
-  end;
-
-  ScriptTree.Images := FScriptImages;
-end;
+procedure TForm1.CreateScriptImages;
+
+var
+
+  Bmp: TBitmap;
+
+begin
+
+  if Assigned(FScriptImages) then
+
+  begin
+
+    ScriptTree.Images := FScriptImages;
+
+    Exit;
+
+  end;
+
+
+
+  FScriptImages := TImageList.Create(Self);
+
+  FScriptImages.Width := 32;
+
+  FScriptImages.Height := 32;
+
+
+
+  Bmp := TBitmap.Create;
+
+  try
+
+    Bmp.SetSize(32, 32);
+
+    Bmp.Transparent := True;
+
+    Bmp.TransparentColor := clFuchsia;
+
+
+
+    { icono 0 = carpeta }
+
+    Bmp.Canvas.Brush.Color := clFuchsia;
+
+    Bmp.Canvas.FillRect(0, 0, 32, 32);
+
+    Bmp.Canvas.Pen.Color := $2A5CAA;
+
+    Bmp.Canvas.Brush.Color := $8EC5FF;
+
+    Bmp.Canvas.Rectangle(2, 10, 30, 28);
+
+    Bmp.Canvas.Brush.Color := $B8DCFF;
+
+    Bmp.Canvas.Rectangle(4, 6, 16, 14);
+
+    FScriptImages.AddMasked(Bmp, clFuchsia);
+
+
+
+    { icono 1 = script/documento }
+
+    Bmp.Canvas.Brush.Color := clFuchsia;
+
+    Bmp.Canvas.FillRect(0, 0, 32, 32);
+
+    Bmp.Canvas.Pen.Color := $7A6A4F;
+
+    Bmp.Canvas.Brush.Color := clWhite;
+
+    Bmp.Canvas.Rectangle(6, 2, 26, 30);
+
+    Bmp.Canvas.Brush.Color := $D9E8FF;
+
+    Bmp.Canvas.Polygon([
+
+      Point(18, 2),
+
+      Point(24, 2),
+
+      Point(24, 8)
+
+    ]);
+
+    Bmp.Canvas.Pen.Color := $B2552A;
+
+    Bmp.Canvas.Line(10, 12, 22, 12);
+
+    Bmp.Canvas.Line(10, 16, 22, 16);
+
+    Bmp.Canvas.Line(10, 20, 22, 20);
+
+    FScriptImages.AddMasked(Bmp, clFuchsia);
+
+  finally
+
+    Bmp.Free;
+
+  end;
+
+
+
+  ScriptTree.Images := FScriptImages;
+
+end;
+
 function TForm1.ReadScriptDescription(const AFileName: String): String;
 const
   Prefix = ':: description=';
