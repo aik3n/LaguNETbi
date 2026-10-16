@@ -59,9 +59,11 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
   TAboutForm = class(TForm)
   private
     FStartupCheck: TCheckBox;
+    FShowBatContentCheck: TCheckBox;
     FStartupStatus: TLabel;
     FUpdating: Boolean;
     procedure StartupChanged(Sender: TObject);
+    procedure ShowBatContentChanged(Sender: TObject);
     procedure OpenRepository(Sender: TObject);
     procedure RefreshStartupState;
   public
@@ -93,8 +95,15 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     PingTarget: String;
   end;
 
+  { TForm1 }
+
   TForm1 = class(TForm)
+    ApplyButton: TButton;
+    BatContentLabel: TLabel;
+    BatMemo: TMemo;
+    PingProgress: TProgressBar;
     ProfilesLabel: TLabel;
+    SaveButton: TButton;
     ScriptTree: TTreeView;
     CountLabel: TLabel;
     PreviewLabel: TLabel;
@@ -106,12 +115,10 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     NameEdit: TEdit;
     DescriptionLabel: TLabel;
     DescriptionEdit: TEdit;
-    BatContentLabel: TLabel;
-    BatToggleButton: TSpeedButton;
-    BatMemo: TMemo;
     AdapterLabel: TLabel;
     Adapter: TComboBox;
     ReadCurrentButton: TButton;
+    StatusLabel: TLabel;
     VirtualFilterBox: TCheckBox;
     AutomaticBox: TCheckBox;
     AddressLabel: TLabel;
@@ -124,11 +131,6 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     WifiCombo: TComboBox;
     PingBox: TCheckBox;
     PingEdit: TEdit;
-    StatusLabel: TLabel;
-    PingProgress: TProgressBar;
-    SaveButton: TButton;
-    ApplyButton: TButton;
-    Footer: TPanel;
     Sidebar: TPanel;
     Content: TPanel;
     TrayIcon: TTrayIcon;
@@ -151,11 +153,11 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure ScriptTreeDragOver(Sender, Source: TObject; X, Y: Integer;
       State: TDragState; var Accept: Boolean);
     procedure ScriptTreeDragDrop(Sender, Source: TObject; X, Y: Integer);
+    procedure EditScript(Sender: TObject);
     procedure OpenScriptLocation(Sender: TObject);
     procedure ToggleAutomatic(Sender: TObject);
     procedure ToggleWifi(Sender: TObject);
     procedure TogglePing(Sender: TObject);
-    procedure ToggleBatPreview(Sender: TObject);
     procedure ConfigurationChanged(Sender: TObject);
     procedure AdapterChanged(Sender: TObject);
     procedure ReadCurrentConfiguration(Sender: TObject);
@@ -172,6 +174,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FDraggedNode: TTreeNode;
     FContextNode: TTreeNode;
     FScriptMenu: TPopupMenu;
+    FEditScriptMenuItem: TMenuItem;
     FOpenLocationMenuItem: TMenuItem;
     FScriptImages: TImageList;
     FIniPath: String;
@@ -294,7 +297,7 @@ begin
 
   Caption := 'Ayuda / Acerca de';
   ClientWidth := 520;
-  ClientHeight := 410;
+  ClientHeight := 440;
   Position := poOwnerFormCenter;
   BorderStyle := bsDialog;
   BorderIcons := [biSystemMenu];
@@ -331,7 +334,7 @@ begin
 
   StartupGroup := TGroupBox.Create(Self);
   StartupGroup.Parent := Self;
-  StartupGroup.SetBounds(24, 132, 472, 112);
+  StartupGroup.SetBounds(24, 132, 472, 142);
   StartupGroup.Caption := ' Inicio con Windows ';
 
   FStartupCheck := TCheckBox.Create(Self);
@@ -341,9 +344,27 @@ begin
     'Iniciar con Windows con permisos de administrador';
   FStartupCheck.OnClick := @StartupChanged;
 
+
+  FShowBatContentCheck := TCheckBox.Create(Self);
+
+  FShowBatContentCheck.Parent := StartupGroup;
+
+  FShowBatContentCheck.SetBounds(16, 56, 430, 24);
+
+  FShowBatContentCheck.Caption := 'Mostrar contenido del BAT';
+
+  if AOwner is TForm1 then
+
+    FShowBatContentCheck.Checked := TForm1(AOwner).BatMemo.Visible
+
+  else
+
+    FShowBatContentCheck.Checked := True;
+
+  FShowBatContentCheck.OnClick := @ShowBatContentChanged;
   FStartupStatus := TLabel.Create(Self);
   FStartupStatus.Parent := StartupGroup;
-  FStartupStatus.SetBounds(16, 56, 430, 42);
+  FStartupStatus.SetBounds(16, 84, 430, 42);
   FStartupStatus.AutoSize := False;
   FStartupStatus.WordWrap := True;
   FStartupStatus.Font.Size := 9;
@@ -352,7 +373,7 @@ begin
 
   CreditsGroup := TGroupBox.Create(Self);
   CreditsGroup.Parent := Self;
-  CreditsGroup.SetBounds(24, 256, 472, 96);
+  CreditsGroup.SetBounds(24, 286, 472, 96);
   CreditsGroup.Caption := ' Acerca de / creditos ';
 
   CreditsLabel := TLabel.Create(Self);
@@ -373,7 +394,7 @@ begin
 
   CloseButton := TButton.Create(Self);
   CloseButton.Parent := Self;
-  CloseButton.SetBounds(376, 364, 120, 34);
+  CloseButton.SetBounds(376, 394, 120, 34);
   CloseButton.Caption := 'Cerrar';
   CloseButton.ModalResult := mrOk;
   CloseButton.Default := True;
@@ -440,6 +461,56 @@ begin
     FStartupCheck.Enabled := True;
     RefreshStartupState;
   end;
+end;
+
+procedure TAboutForm.ShowBatContentChanged(Sender: TObject);
+
+var
+
+  MainForm: TForm1;
+
+  Ini: TIniFile;
+
+begin
+
+  if not (Owner is TForm1) then
+
+    Exit;
+
+
+
+  MainForm := TForm1(Owner);
+
+  MainForm.SetBatPreviewExpanded(FShowBatContentCheck.Checked);
+
+
+
+  if MainForm.FIniPath <> '' then
+
+  begin
+
+    Ini := TIniFile.Create(MainForm.FIniPath);
+
+    try
+
+      Ini.WriteBool(
+
+        'Layout',
+
+        'BatPreviewExpanded',
+
+        FShowBatContentCheck.Checked
+
+      );
+
+    finally
+
+      Ini.Free;
+
+    end;
+
+  end;
+
 end;
 
 procedure TAboutForm.OpenRepository(Sender: TObject);
@@ -637,6 +708,8 @@ begin
 
   FScriptsPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'scripts';
   FIniPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'LaguNETbi.ini';
+
+
   if FileExists(FIniPath) then
 
   begin
@@ -689,6 +762,10 @@ begin
 
   FContextNode := nil;
   FScriptMenu := TPopupMenu.Create(Self);
+  FEditScriptMenuItem := TMenuItem.Create(FScriptMenu);
+  FEditScriptMenuItem.Caption := 'Editar BAT';
+  FEditScriptMenuItem.OnClick := @EditScript;
+  FScriptMenu.Items.Add(FEditScriptMenuItem);
   FOpenLocationMenuItem := TMenuItem.Create(FScriptMenu);
   FOpenLocationMenuItem.Caption := 'Abrir ubicacion';
   FOpenLocationMenuItem.OnClick := @OpenScriptLocation;
@@ -2211,6 +2288,29 @@ begin
     CountLabel.Caption := IntToStr(N) + ' scripts';
 end;
 
+procedure TForm1.EditScript(Sender: TObject);
+var
+  TargetPath, Params: String;
+begin
+  if not IsScriptNode(FContextNode) then
+    Exit;
+
+  TargetPath := ScriptNodePath(FContextNode);
+  if not FileExists(TargetPath) then
+    Exit;
+
+  { Abrimos explicitamente como texto. No usamos la asociacion .bat
+    para evitar cualquier posibilidad de ejecutarlo. }
+  Params := '"' + TargetPath + '"';
+  ShellExecute(
+    Handle,
+    'open',
+    'notepad.exe',
+    PChar(Params),
+    nil,
+    SW_SHOWNORMAL
+  );
+end;
 procedure TForm1.OpenScriptLocation(Sender: TObject);
 var
   TargetPath, Params: String;
@@ -2320,6 +2420,7 @@ begin
       ScriptTreeClick(nil);
     end;
 
+    FEditScriptMenuItem.Visible := IsScriptNode(Node);
     FScriptMenu.PopUp;
     Exit;
   end;
@@ -2471,27 +2572,27 @@ var
 
 begin
 
-  BatToggleButton.Caption := 'â–¼';
-
-  if not AExpanded then
-
-    BatToggleButton.Caption := 'â–¶';
-
-
-
   if BatMemo.Visible = AExpanded then
+
+  begin
+
+    BatContentLabel.Visible := AExpanded;
 
     Exit;
 
+  end;
 
 
-  { La distancia se obtiene de la maquetacion ya escalada por Lazarus.
 
-    No hay coordenadas DPI fijas en el codigo. }
+  { Altura real de la seccion BAT: desde su titulo hasta el final del Memo.
 
-  Delta := BatMemo.Height +
+    Si cambias posicion o altura del Memo en Lazarus, el calculo se adapta. }
 
-    (PingProgress.Top - (BatMemo.Top + BatMemo.Height));
+  Delta := (BatMemo.Top + BatMemo.Height) - BatContentLabel.Top;
+
+  if Delta < 0 then
+
+    Delta := 0;
 
 
 
@@ -2499,17 +2600,13 @@ begin
 
   begin
 
-    BatMemo.Visible := True;
-
-    PingProgress.Top := PingProgress.Top + Delta;
-
-    SaveButton.Top := SaveButton.Top + Delta;
-
-    ApplyButton.Top := ApplyButton.Top + Delta;
-
-    StatusLabel.Top := StatusLabel.Top + Delta;
-
     Footer.Height := Footer.Height + Delta;
+
+    ClientHeight := ClientHeight + Delta;
+
+    BatContentLabel.Visible := True;
+
+    BatMemo.Visible := True;
 
   end
 
@@ -2519,30 +2616,15 @@ begin
 
     BatMemo.Visible := False;
 
-    PingProgress.Top := PingProgress.Top - Delta;
-
-    SaveButton.Top := SaveButton.Top - Delta;
-
-    ApplyButton.Top := ApplyButton.Top - Delta;
-
-    StatusLabel.Top := StatusLabel.Top - Delta;
+    BatContentLabel.Visible := False;
 
     Footer.Height := Footer.Height - Delta;
+
+    ClientHeight := ClientHeight - Delta;
 
   end;
 
 end;
-
-
-
-procedure TForm1.ToggleBatPreview(Sender: TObject);
-
-begin
-
-  SetBatPreviewExpanded(not BatMemo.Visible);
-
-end;
-
 procedure TForm1.ToggleAutomatic(Sender: TObject);
 begin
   AddressEdit.Enabled := not AutomaticBox.Checked;

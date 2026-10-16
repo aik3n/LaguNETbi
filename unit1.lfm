@@ -40,9 +40,9 @@ object Form1: TForm1
       Transparent = True
     end
     object PreviewLabel: TLabel
-      Left = 412
+      Left = 488
       Height = 40
-      Top = 40
+      Top = 42
       Width = 600
       Anchors = [akTop, akLeft, akRight]
       AutoSize = False
@@ -363,99 +363,71 @@ object Form1: TForm1
       TabOrder = 10
       OnChange = ConfigurationChanged
     end
-    object Footer: TPanel
-      Left = 24
-      Height = 388
-      Top = 696
-      Width = 1164
+    object BatMemo: TMemo
+      Left = 28
+      Height = 154
+      Top = 912
+      Width = 704
       Anchors = [akTop, akLeft, akRight]
-      BevelOuter = bvNone
-      ClientHeight = 388
-      ClientWidth = 1164
-      Color = clWhite
-      ParentBackground = False
-      ParentColor = False
+      Font.Height = -24
+      Font.Name = 'Consolas'
+      ParentFont = False
+      ReadOnly = True
+      ScrollBars = ssAutoBoth
       TabOrder = 13
-      object BatToggleButton: TSpeedButton
-        Left = 18
-        Height = 36
-        Hint = 'Ocultar o mostrar contenido del BAT'
-        Top = 176
-        Width = 32
-        Caption = 'â–¼'
-        Flat = True
-        Font.Height = -22
-        ShowHint = True
-        ParentFont = False
-        ParentShowHint = False
-        OnClick = ToggleBatPreview
-      end
-      object BatContentLabel: TLabel
-        Left = 72
-        Height = 32
-        Top = 176
-        Width = 1104
-        Anchors = [akTop, akLeft, akRight]
-        Caption = 'CONTENIDO REAL DEL BAT'
-        Font.Color = 7760478
-        Font.Height = -24
-        ParentFont = False
-      end
-      object BatMemo: TMemo
-        Left = 18
-        Height = 154
-        Top = 224
-        Width = 1144
-        Anchors = [akTop, akLeft, akRight]
-        Font.Height = -24
-        Font.Name = 'Consolas'
-        ParentFont = False
-        ReadOnly = True
-        ScrollBars = ssAutoBoth
-        TabOrder = 2
-        WordWrap = False
-      end
-      object PingProgress: TProgressBar
-        Left = 8
-        Height = 14
-        Top = 10
-        Width = 1168
-        Anchors = [akTop, akLeft, akRight]
-        Max = 10
-        TabOrder = 3
-        Visible = False
-      end
-      object StatusLabel: TLabel
-        Left = 16
-        Height = 34
-        Top = 120
-        Width = 1168
-        Anchors = [akTop, akLeft, akRight]
-        AutoSize = False
-        Caption = 'Selecciona un script.'
-        Font.Color = 7760478
-        Font.Height = -24
-        ParentFont = False
-      end
-      object SaveButton: TButton
-        Left = 8
-        Height = 48
-        Top = 48
-        Width = 360
-        Caption = 'Guardar'
-        TabOrder = 0
-        OnClick = SaveScriptConfiguration
-      end
-      object ApplyButton: TButton
-        Left = 464
-        Height = 48
-        Top = 48
-        Width = 360
-        Anchors = [akTop, akRight]
-        Caption = 'Establecer'
-        TabOrder = 1
-        OnClick = PreviewAction
-      end
+      WordWrap = False
+    end
+    object BatContentLabel: TLabel
+      Left = 40
+      Height = 32
+      Top = 864
+      Width = 704
+      Anchors = [akTop, akLeft, akRight]
+      Caption = 'CONTENIDO REAL DEL BAT'
+      Font.Color = 7760478
+      Font.Height = -24
+      ParentFont = False
+    end
+    object ApplyButton: TButton
+      Left = 672
+      Height = 48
+      Top = 736
+      Width = 360
+      Anchors = [akTop, akRight]
+      Caption = 'Establecer'
+      TabOrder = 14
+      OnClick = PreviewAction
+    end
+    object PingProgress: TProgressBar
+      Left = 32
+      Height = 18
+      Top = 678
+      Width = 1144
+      Anchors = [akTop, akLeft, akRight]
+      Max = 10
+      TabOrder = 15
+      Visible = False
+    end
+    object SaveButton: TButton
+      Left = 32
+      Height = 48
+      Top = 728
+      Width = 360
+      Caption = 'Guardar'
+      TabOrder = 16
+      OnClick = SaveScriptConfiguration
+    end
+    object StatusLabel: TLabel
+      Left = 536
+      Height = 34
+      Top = 808
+      Width = 728
+      Anchors = [akTop, akLeft, akRight]
+      AutoSize = False
+      Caption = 'Selecciona un script.'
+      Font.Color = 7760478
+      Font.Height = -24
+      ParentFont = False
     end
   end
   object TrayMenu: TPopupMenu
