@@ -46,6 +46,8 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FTree: TTreeView;
     FStatus: TLabel;
     FProgress: TProgressBar;
+    FRunning: Boolean;
+    function SelectedScriptPath: String;
     procedure PopupDeactivate(Sender: TObject);
     procedure TreeDblClick(Sender: TObject);
     procedure TreeEditing(Sender: TObject; Node: TTreeNode; var AllowEdit: Boolean);
@@ -53,6 +55,10 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
   public
     constructor CreatePopup(AOwner: TComponent);
     procedure RefreshScripts(const ARootPath: String);
+    procedure BeginExecution(const AName: String; AUsePing: Boolean);
+    procedure SetIPv4Done;
+    procedure SetPingProgress(AAttempt, AReplies: Integer);
+    procedure FinishExecution(const AStatus: String);
     procedure ShowNearTray;
   end;
 
@@ -87,6 +93,8 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     ApplyButton: TButton;
     BatContentLabel: TLabel;
     BatMemo: TMemo;
+    CountLabel1: TLabel;
+    VersionLabel: TLabel;
     PingProgress: TProgressBar;
     ProfilesLabel: TLabel;
     SaveButton: TButton;
@@ -158,6 +166,9 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FTrayReady: Boolean;
     FScriptsPath: String;
     FQuickForm: TQuickForm;
+    FPingThread: TThread;
+    FApplyFromQuickMenu: Boolean;
+    FActivePingTarget: String;
     FDraggedNode: TTreeNode;
     FContextNode: TTreeNode;
     FScriptMenu: TPopupMenu;
@@ -201,7 +212,11 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
       const AConfig: TNetworkConfig;
       out AError: String
     ): Boolean;
-    procedure RunPingTest(const ATarget: String);
+    procedure StartPingTest(const ATarget: String);
+    procedure PingThreadProgress(AAttempt, AReplies: Integer);
+    procedure PingThreadFinished(AReplies: Integer; const AError: String);
+    procedure FinishApplyUI;
+    procedure ExecuteScriptFromQuickMenu(const AFileName: String);
     procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
@@ -232,6 +247,106 @@ uses
 
 {$R *.lfm}
 
+type
+  TPingThread = class(TThread)
+  private
+    FOwner: TForm1;
+    FTarget: String;
+    FAttempt: Integer;
+    FReplies: Integer;
+    FError: String;
+    procedure SyncProgress;
+    procedure SyncFinished;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(AOwner: TForm1; const ATarget: String);
+  end;
+
+constructor TPingThread.Create(AOwner: TForm1; const ATarget: String);
+begin
+  inherited Create(True);
+  FreeOnTerminate := True;
+  FOwner := AOwner;
+  FTarget := ATarget;
+end;
+
+procedure TPingThread.SyncProgress;
+begin
+  if Assigned(FOwner) then
+    FOwner.PingThreadProgress(FAttempt, FReplies);
+end;
+
+procedure TPingThread.SyncFinished;
+begin
+  if Assigned(FOwner) then
+    FOwner.PingThreadFinished(FReplies, FError);
+end;
+
+procedure TPingThread.Execute;
+const
+  PingAttempts = 10;
+var
+  I: Integer;
+  P: TProcess;
+  PingExe: String;
+begin
+  FReplies := 0;
+  FError := '';
+
+  PingExe := IncludeTrailingPathDelimiter(GetEnvironmentVariable('WINDIR')) +
+    'System32' + PathDelim + 'PING.EXE';
+
+  if not FileExists(PingExe) then
+    PingExe := 'ping.exe';
+
+  for I := 1 to PingAttempts do
+  begin
+    { Mostramos el intento que esta comenzando. }
+    FAttempt := I;
+    Synchronize(@SyncProgress);
+
+    P := TProcess.Create(nil);
+    try
+      P.Executable := PingExe;
+      P.Parameters.Add('-n');
+      P.Parameters.Add('1');
+      P.Parameters.Add('-w');
+      P.Parameters.Add('1000');
+      P.Parameters.Add(FTarget);
+      P.Options := [poNoConsole];
+
+      try
+        P.Execute;
+
+        while P.Running do
+          Sleep(20);
+
+        { No evaluamos calidad. El primer ping correcto termina la espera. }
+        if P.ExitStatus = 0 then
+        begin
+          FReplies := 1;
+          Synchronize(@SyncFinished);
+          Exit;
+        end;
+      except
+        on E: Exception do
+          FError := E.Message;
+      end;
+    finally
+      P.Free;
+    end;
+
+    if FError <> '' then
+    begin
+      Synchronize(@SyncFinished);
+      Exit;
+    end;
+  end;
+
+  { Diez intentos sin ninguna respuesta. }
+  Synchronize(@SyncFinished);
+end;
 
 const
   AF_UNSPEC_LAGUNET = 0;
@@ -296,6 +411,7 @@ begin
   FProgress.Max := 17;
   FProgress.Position := 0;
   FProgress.Visible := False;
+  FRunning := False;
 
   FStatus := TLabel.Create(Self);
   FStatus.Parent := Self;
@@ -322,9 +438,9 @@ end;
 
 procedure TQuickForm.PopupDeactivate(Sender: TObject);
 begin
-  Hide;
+  if not FRunning then
+    Hide;
 end;
-
 procedure TQuickForm.AddDirectory(const ADirectory: String; AParent: TTreeNode);
 var
   SR: TSearchRec;
@@ -358,6 +474,9 @@ procedure TQuickForm.RefreshScripts(const ARootPath: String);
 var
   RootNode: TTreeNode;
 begin
+  if FRunning then
+    Exit;
+
   FTree.Items.BeginUpdate;
   try
     FTree.Items.Clear;
@@ -382,18 +501,96 @@ begin
   AllowEdit := False;
 end;
 
-procedure TQuickForm.TreeDblClick(Sender: TObject);
+function TQuickForm.SelectedScriptPath: String;
+var
+  Node, Cur: TTreeNode;
+  RelativePath: String;
+  MainForm: TForm1;
 begin
-  if not Assigned(FTree.Selected) then
+  Result := '';
+
+  if not (Owner is TForm1) then
     Exit;
 
-  if SameText(ExtractFileExt(FTree.Selected.Text), '.bat') then
+  Node := FTree.Selected;
+  if not Assigned(Node) then
+    Exit;
+
+  if not SameText(ExtractFileExt(Node.Text), '.bat') then
+    Exit;
+
+  RelativePath := Node.Text;
+  Cur := Node.Parent;
+
+  { El nodo raiz se llama "scripts", pero FScriptsPath ya apunta a esa
+    carpeta, asi que no lo duplicamos. }
+  while Assigned(Cur) and Assigned(Cur.Parent) do
   begin
-    FStatus.Caption := 'Seleccionado: ' + FTree.Selected.Text;
-    FStatus.Visible := True;
+    RelativePath := Cur.Text + PathDelim + RelativePath;
+    Cur := Cur.Parent;
   end;
+
+  MainForm := TForm1(Owner);
+  Result := IncludeTrailingPathDelimiter(MainForm.FScriptsPath) + RelativePath;
 end;
 
+procedure TQuickForm.TreeDblClick(Sender: TObject);
+var
+  ScriptPath: String;
+begin
+  if FRunning then
+    Exit;
+
+  ScriptPath := SelectedScriptPath;
+  if (ScriptPath = '') or not FileExists(ScriptPath) then
+    Exit;
+
+  if Owner is TForm1 then
+    TForm1(Owner).ExecuteScriptFromQuickMenu(ScriptPath);
+end;
+
+procedure TQuickForm.BeginExecution(const AName: String; AUsePing: Boolean);
+begin
+  FRunning := True;
+  FTree.Enabled := False;
+
+  FProgress.Min := 0;
+  if AUsePing then
+    FProgress.Max := 11
+  else
+    FProgress.Max := 1;
+
+  FProgress.Position := 0;
+  FProgress.Visible := True;
+  FStatus.Caption := 'Aplicando: ' + AName;
+  FStatus.Visible := True;
+end;
+
+procedure TQuickForm.SetIPv4Done;
+begin
+  FProgress.Position := 1;
+
+  if FProgress.Max > 1 then
+    FStatus.Caption := 'IPv4 aplicada - comprobando ping...';
+end;
+
+procedure TQuickForm.SetPingProgress(AAttempt, AReplies: Integer);
+begin
+  FProgress.Position := 1 + AAttempt;
+  FStatus.Caption := Format(
+    'Esperando conexion... %d/10',
+    [AAttempt]
+  );
+end;
+procedure TQuickForm.FinishExecution(const AStatus: String);
+begin
+  FProgress.Position := 0;
+  FProgress.Visible := False;
+  FStatus.Caption := AStatus;
+  FStatus.Visible := True;
+  FTree.Enabled := True;
+  FRunning := False;
+end;
 procedure TQuickForm.ShowNearTray;
 var
   R: TRect;
@@ -540,6 +737,13 @@ procedure TForm1.FormClose(Sender: TObject; var CloseAction: TCloseAction);
 var
   Ini: TIniFile;
 begin
+  if FExiting and Assigned(FPingThread) then
+  begin
+    FExiting := False;
+    CloseAction := caNone;
+    StatusLabel.Caption := 'Ping en curso. Espera a que termine para salir.';
+    Exit;
+  end;
   if FIniPath <> '' then
 
   begin
@@ -2792,113 +2996,136 @@ begin
   end;
 end;
 
-procedure TForm1.RunPingTest(const ATarget: String);
-const
-  PingAttempts = 10;
-var
-  I, Replies, Loss: Integer;
-  P: TProcess;
-  PingExe: String;
+procedure TForm1.StartPingTest(const ATarget: String);
 begin
-  Replies := 0;
-  StatusLabel.Font.Color := TColor(7760478);
+  if Assigned(FPingThread) then
+    Exit;
+
+  FActivePingTarget := ATarget;
 
   PingProgress.Min := 0;
-  PingProgress.Max := PingAttempts;
+  PingProgress.Max := 10;
   PingProgress.Position := 0;
   PingProgress.Visible := True;
 
-  PingExe := IncludeTrailingPathDelimiter(GetEnvironmentVariable('WINDIR')) +
-    'System32' + PathDelim + 'PING.EXE';
+  StatusLabel.Font.Color := TColor(7760478);
+  StatusLabel.Caption := 'Esperando conexion...';
 
-  if not FileExists(PingExe) then
-    PingExe := 'ping.exe';
+  FPingThread := TPingThread.Create(Self, ATarget);
+  FPingThread.Start;
+end;
+procedure TForm1.PingThreadProgress(AAttempt, AReplies: Integer);
+begin
+  PingProgress.Position := AAttempt;
+  StatusLabel.Font.Color := TColor(7760478);
+  StatusLabel.Caption := Format(
+    'Esperando conexion... intento %d/10',
+    [AAttempt]
+  );
 
-  for I := 1 to PingAttempts do
-  begin
-    StatusLabel.Caption := Format(
-      'Ping %s - intento %d/%d - respuestas %d',
-      [ATarget, I, PingAttempts, Replies]);
-    Application.ProcessMessages;
+  if FApplyFromQuickMenu and Assigned(FQuickForm) then
+    FQuickForm.SetPingProgress(AAttempt, AReplies);
+end;
+procedure TForm1.PingThreadFinished(AReplies: Integer; const AError: String);
+begin
+  { El hilo ya no volvera a tocar el formulario despues de este callback. }
+  FPingThread := nil;
 
-    P := TProcess.Create(nil);
-    try
-      P.Executable := PingExe;
-      P.Parameters.Add('-n');
-      P.Parameters.Add('1');
-      P.Parameters.Add('-w');
-      P.Parameters.Add('1000');
-      P.Parameters.Add(ATarget);
-      P.Options := [poNoConsole];
+  { La barra representa solo la espera; con resultado ya no hace falta. }
+  PingProgress.Position := 0;
+  PingProgress.Visible := False;
 
-      try
-        P.Execute;
-
-        while P.Running do
-        begin
-          Application.ProcessMessages;
-          Sleep(20);
-        end;
-
-        if P.ExitStatus = 0 then
-          Inc(Replies);
-      except
-        on E: Exception do
-        begin
-          PingProgress.Position := 0;
-          StatusLabel.Font.Color := clRed;
-          StatusLabel.Caption := 'PING NOK - error: ' + E.Message;
-          Exit;
-        end;
-      end;
-    finally
-      P.Free;
-    end;
-
-    PingProgress.Position := I;
-    StatusLabel.Caption := Format(
-      'Ping %s - intento %d/%d - respuestas %d',
-      [ATarget, I, PingAttempts, Replies]);
-    Application.ProcessMessages;
-  end;
-
-  Loss := ((PingAttempts - Replies) * 100) div PingAttempts;
-
-  { Al terminar, la barra representa respuestas correctas de 10. }
-  PingProgress.Position := Replies;
-
-  if Replies = PingAttempts then
-  begin
-    StatusLabel.Font.Color := clGreen;
-    StatusLabel.Caption := Format(
-      'PING OK - %d/%d respuestas - %d%% perdida',
-      [Replies, PingAttempts, Loss]);
-  end
-  else if Replies = 0 then
+  if AError <> '' then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := Format(
-      'PING NOK - %d/%d respuestas - %d%% perdida',
-      [Replies, PingAttempts, Loss]);
+    StatusLabel.Caption := 'PING NOK - error: ' + AError;
+  end
+  else if AReplies > 0 then
+  begin
+    StatusLabel.Font.Color := clGreen;
+    StatusLabel.Caption := 'PING OK';
   end
   else
   begin
-    StatusLabel.Font.Color := TColor($000080FF);
-    StatusLabel.Caption := Format(
-      'PING INESTABLE - %d/%d respuestas - %d%% perdida',
-      [Replies, PingAttempts, Loss]);
+    StatusLabel.Font.Color := clRed;
+    StatusLabel.Caption := 'PING NOK';
   end;
+
+  if FApplyFromQuickMenu and Assigned(FQuickForm) then
+    FQuickForm.FinishExecution(StatusLabel.Caption);
+
+  FinishApplyUI;
+end;
+procedure TForm1.FinishApplyUI;
+begin
+  ApplyButton.Enabled := True;
+  Screen.Cursor := crDefault;
+  UpdateValidationUI;
+  FApplyFromQuickMenu := False;
 end;
 
+procedure TForm1.ExecuteScriptFromQuickMenu(const AFileName: String);
+var
+  TestStream: TFileStream;
+begin
+  if Assigned(FPingThread) then
+    Exit;
+
+  if not FileExists(AFileName) then
+    Exit;
+
+  { Comprobamos que el BAT se puede leer antes de modificar la UI.
+    No se ejecuta el archivo: se carga y se interpreta como siempre. }
+  try
+    TestStream := TFileStream.Create(
+      AFileName,
+      fmOpenRead or fmShareDenyNone
+    );
+    TestStream.Free;
+  except
+    on E: Exception do
+    begin
+      if Assigned(FQuickForm) then
+        FQuickForm.FinishExecution(
+          'No se pudo leer ' + ExtractFileName(AFileName)
+        );
+      Exit;
+    end;
+  end;
+
+  SelectScriptInTree(AFileName);
+  LoadScriptConfiguration(AFileName);
+
+  FApplyFromQuickMenu := True;
+
+  if Assigned(FQuickForm) then
+    FQuickForm.BeginExecution(
+      ExtractFileName(AFileName),
+      PingBox.Checked
+    );
+
+  PreviewAction(nil);
+end;
 
 procedure TForm1.PreviewAction(Sender: TObject);
 var
   Config: TNetworkConfig;
   Validation: TConfigurationValidation;
   ErrorText: String;
+  IPv4OK: Boolean;
 begin
   { Establecer SIEMPRE parte de la UI actual.
     El BAT seleccionado no se ejecuta. }
+
+  if Sender = ApplyButton then
+    FApplyFromQuickMenu := False;
+
+  if Assigned(FPingThread) then
+  begin
+    StatusLabel.Caption := 'Ya hay una comprobacion de ping en curso.';
+    Exit;
+  end;
+
   Config := CurrentNetworkConfig;
   Validation := EvaluateConfiguration(Config);
   UpdateValidationUI;
@@ -2906,74 +3133,136 @@ begin
   if not Validation.ConfigOK then
   begin
     StatusLabel.Caption := 'Configuracion no valida. No se ha aplicado nada.';
+
+    if FApplyFromQuickMenu and Assigned(FQuickForm) then
+      FQuickForm.FinishExecution(StatusLabel.Caption);
+
+    FApplyFromQuickMenu := False;
     Exit;
   end;
 
   ApplyButton.Enabled := False;
   Screen.Cursor := crHourGlass;
+  StatusLabel.Font.Color := TColor(7760478);
   StatusLabel.Caption := 'Aplicando configuracion IPv4...';
   Application.ProcessMessages;
 
   try
-    if not ExecuteIPv4Configuration(Config, ErrorText) then
-    begin
-      StatusLabel.Caption := 'Error: ' + ErrorText;
-      Exit;
-    end;
-
-    if Config.UsePing then
-      RunPingTest(Config.PingTarget)
-    else if Config.WifiSupported and Config.UseWifi then
-      StatusLabel.Caption :=
-        'IPv4 aplicada a ' + Config.AdapterName +
-        '. Wi-Fi aun no se ejecuta en esta prueba.'
-    else
-      StatusLabel.Caption :=
-        'Configuracion IPv4 aplicada a ' + Config.AdapterName + '.';
+    IPv4OK := ExecuteIPv4Configuration(Config, ErrorText);
   finally
     Screen.Cursor := crDefault;
-    UpdateValidationUI;
   end;
+
+  if not IPv4OK then
+  begin
+    StatusLabel.Font.Color := clRed;
+    StatusLabel.Caption := 'Error: ' + ErrorText;
+
+    if FApplyFromQuickMenu and Assigned(FQuickForm) then
+      FQuickForm.FinishExecution(StatusLabel.Caption);
+
+    FinishApplyUI;
+    Exit;
+  end;
+
+  if FApplyFromQuickMenu and Assigned(FQuickForm) then
+    FQuickForm.SetIPv4Done;
+
+  if Config.UsePing then
+  begin
+    StartPingTest(Config.PingTarget);
+    Exit;
+  end;
+
+  if Config.WifiSupported and Config.UseWifi then
+    StatusLabel.Caption :=
+      'IPv4 aplicada a ' + Config.AdapterName +
+      '. Wi-Fi aun no se ejecuta en esta prueba.'
+  else
+    StatusLabel.Caption :=
+      'Configuracion IPv4 aplicada a ' + Config.AdapterName + '.';
+
+  if FApplyFromQuickMenu and Assigned(FQuickForm) then
+    FQuickForm.FinishExecution(StatusLabel.Caption);
+
+  FinishApplyUI;
+end;
+procedure TForm1.SettingsBatContentChanged(Sender: TObject);
+
+var
+
+  SettingsDialog: TSettingsForm;
+
+  Ini: TIniFile;
+
+begin
+
+  if not (Sender is TSettingsForm) then
+
+    Exit;
+
+
+
+  SettingsDialog := TSettingsForm(Sender);
+
+  SetBatPreviewExpanded(SettingsDialog.ShowBatContent);
+
+
+
+  if FIniPath <> '' then
+
+  begin
+
+    Ini := TIniFile.Create(FIniPath);
+
+    try
+
+      Ini.WriteBool(
+
+        'Layout',
+
+        'BatPreviewExpanded',
+
+        SettingsDialog.ShowBatContent
+
+      );
+
+    finally
+
+      Ini.Free;
+
+    end;
+
+  end;
+
 end;
 
-procedure TForm1.SettingsBatContentChanged(Sender: TObject);
-var
-  SettingsDialog: TSettingsForm;
-  Ini: TIniFile;
-begin
-  if not (Sender is TSettingsForm) then
-    Exit;
-
-  SettingsDialog := TSettingsForm(Sender);
-  SetBatPreviewExpanded(SettingsDialog.ShowBatContent);
-
-  if FIniPath <> '' then
-  begin
-    Ini := TIniFile.Create(FIniPath);
-    try
-      Ini.WriteBool(
-        'Layout',
-        'BatPreviewExpanded',
-        SettingsDialog.ShowBatContent
-      );
-    finally
-      Ini.Free;
-    end;
-  end;
-end;
-
-procedure TForm1.ShowHelpWindow(Sender: TObject);
-var
-  SettingsDialog: TSettingsForm;
-begin
-  SettingsDialog := TSettingsForm.Create(Self);
-  try
-    SettingsDialog.ShowBatContent := BatMemo.Visible;
-    SettingsDialog.OnShowBatContentChanged := @SettingsBatContentChanged;
-    SettingsDialog.ShowModal;
-  finally
-    SettingsDialog.Free;
-  end;
+
+
+procedure TForm1.ShowHelpWindow(Sender: TObject);
+
+var
+
+  SettingsDialog: TSettingsForm;
+
+begin
+
+  SettingsDialog := TSettingsForm.Create(Self);
+
+  try
+
+    SettingsDialog.ShowBatContent := BatMemo.Visible;
+
+    SettingsDialog.OnShowBatContentChanged := @SettingsBatContentChanged;
+
+    SettingsDialog.ShowModal;
+
+  finally
+
+    SettingsDialog.Free;
+
+  end;
+
 end;
 
 end.
