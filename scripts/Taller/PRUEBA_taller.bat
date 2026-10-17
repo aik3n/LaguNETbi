@@ -1,3 +1,4 @@
+:: description=aqui va una descripcion
 :: testPing=192.168.1.2
 @echo off
 rem Script de prueba. Update 006 NO lo ejecuta.

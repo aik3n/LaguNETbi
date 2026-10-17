@@ -94,7 +94,7 @@ object Form1: TForm1
     end
     object ScriptTree: TTreeView
       Left = 16
-      Height = 956
+      Height = 996
       Top = 56
       Width = 352
       Anchors = [akTop, akLeft, akRight, akBottom]
@@ -117,9 +117,9 @@ object Form1: TForm1
       OnMouseMove = ScriptTreeMouseMove
     end
     object CountLabel: TLabel
-      Left = 16
+      Left = 24
       Height = 37
-      Top = 1016
+      Top = 1056
       Width = 316
       Anchors = [akLeft, akRight, akBottom]
       Caption = '3 scripts de ejemplo'
@@ -364,10 +364,10 @@ object Form1: TForm1
       OnChange = ConfigurationChanged
     end
     object BatMemo: TMemo
-      Left = 28
-      Height = 154
-      Top = 912
-      Width = 704
+      Left = 4
+      Height = 214
+      Top = 880
+      Width = 1196
       Anchors = [akTop, akLeft, akRight]
       Font.Height = -24
       Font.Name = 'Consolas'
@@ -378,9 +378,9 @@ object Form1: TForm1
       WordWrap = False
     end
     object BatContentLabel: TLabel
-      Left = 40
+      Left = 24
       Height = 32
-      Top = 864
+      Top = 840
       Width = 704
       Anchors = [akTop, akLeft, akRight]
       Caption = 'CONTENIDO REAL DEL BAT'
@@ -418,9 +418,9 @@ object Form1: TForm1
       OnClick = SaveScriptConfiguration
     end
     object StatusLabel: TLabel
-      Left = 536
+      Left = 24
       Height = 34
-      Top = 808
+      Top = 792
       Width = 728
       Anchors = [akTop, akLeft, akRight]
       AutoSize = False
@@ -433,8 +433,8 @@ object Form1: TForm1
       Left = 810
       Height = 36
       Top = 18
-      Width = 84
-      Caption = 'Version'
+      Width = 250
+      Caption = 'Versión 2.0 · Update 9'
     end
   end
   object CountLabel1: TLabel

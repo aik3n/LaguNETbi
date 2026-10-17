@@ -47,8 +47,10 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FStatus: TLabel;
     FProgress: TProgressBar;
     FRunning: Boolean;
+    FFocusTimer: TTimer;
     function SelectedScriptPath: String;
     procedure PopupDeactivate(Sender: TObject);
+    procedure FocusTimerTick(Sender: TObject);
     procedure TreeDblClick(Sender: TObject);
     procedure TreeEditing(Sender: TObject; Node: TTreeNode; var AllowEdit: Boolean);
     procedure AddDirectory(const ADirectory: String; AParent: TTreeNode);
@@ -147,6 +149,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure ScriptTreeDragOver(Sender, Source: TObject; X, Y: Integer;
       State: TDragState; var Accept: Boolean);
     procedure ScriptTreeDragDrop(Sender, Source: TObject; X, Y: Integer);
+    procedure ExecuteScript(Sender: TObject);
     procedure EditScript(Sender: TObject);
     procedure OpenScriptLocation(Sender: TObject);
     procedure ToggleAutomatic(Sender: TObject);
@@ -167,11 +170,13 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FScriptsPath: String;
     FQuickForm: TQuickForm;
     FPingThread: TThread;
+    FBatchThread: TThread;
     FApplyFromQuickMenu: Boolean;
     FActivePingTarget: String;
     FDraggedNode: TTreeNode;
     FContextNode: TTreeNode;
     FScriptMenu: TPopupMenu;
+    FExecuteScriptMenuItem: TMenuItem;
     FEditScriptMenuItem: TMenuItem;
     FOpenLocationMenuItem: TMenuItem;
     FScriptImages: TImageList;
@@ -215,8 +220,21 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure StartPingTest(const ATarget: String);
     procedure PingThreadProgress(AAttempt, AReplies: Integer);
     procedure PingThreadFinished(AReplies: Integer; const AError: String);
+    procedure ShowTrayNotification(const AText: String; AWarning: Boolean);
     procedure FinishApplyUI;
-    procedure ExecuteScriptFromQuickMenu(const AFileName: String);
+    function ValidateBatchLines(
+      ALines: TStrings;
+      out AError: String
+    ): Boolean;    function ValidateBatchForExecution(
+      const AFileName: String;
+      out AError: String
+    ): Boolean;
+    procedure BatchThreadFinished(
+      AExitCode: DWORD;
+      const AError: String;
+      AUsePing: Boolean;
+      const APingTarget: String
+    );    procedure ExecuteScriptFromQuickMenu(const AFileName: String);
     procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
@@ -262,6 +280,117 @@ type
   public
     constructor Create(AOwner: TForm1; const ATarget: String);
   end;
+
+  TBatchThread = class(TThread)
+  private
+    FOwner: TForm1;
+    FFileName: String;
+    FUsePing: Boolean;
+    FPingTarget: String;
+    FExitCode: DWORD;
+    FError: String;
+    procedure SyncFinished;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(
+      AOwner: TForm1;
+      const AFileName: String;
+      AUsePing: Boolean;
+      const APingTarget: String
+    );
+  end;
+
+
+constructor TBatchThread.Create(
+  AOwner: TForm1;
+  const AFileName: String;
+  AUsePing: Boolean;
+  const APingTarget: String
+);
+begin
+  inherited Create(True);
+  FreeOnTerminate := True;
+  FOwner := AOwner;
+  FFileName := AFileName;
+  FUsePing := AUsePing;
+  FPingTarget := APingTarget;
+  FExitCode := 0;
+  FError := '';
+end;
+
+procedure TBatchThread.SyncFinished;
+begin
+  if Assigned(FOwner) then
+    FOwner.BatchThreadFinished(
+      FExitCode,
+      FError,
+      FUsePing,
+      FPingTarget
+    );
+end;
+
+procedure TBatchThread.Execute;
+var
+  SEI: TShellExecuteInfoW;
+  VerbW, FileW, DirW: UnicodeString;
+  LastErr: DWORD;
+begin
+  FExitCode := 0;
+  FError := '';
+
+  FileW := UnicodeString(FFileName);
+  DirW := UnicodeString(ExtractFileDir(FFileName));
+
+  if LaguNETbiIsElevated then
+    VerbW := UnicodeString('open')
+  else
+    VerbW := UnicodeString('runas');
+
+  FillChar(SEI, SizeOf(SEI), 0);
+  SEI.cbSize := SizeOf(SEI);
+  SEI.fMask := SEE_MASK_NOCLOSEPROCESS;
+  SEI.lpVerb := PWideChar(VerbW);
+  SEI.lpFile := PWideChar(FileW);
+  SEI.lpDirectory := PWideChar(DirW);
+  SEI.nShow := SW_SHOWNORMAL;
+
+  if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
+  begin
+    LastErr := GetLastError;
+
+    if LastErr = ERROR_CANCELLED then
+      FError := 'Operacion cancelada: no se concedieron permisos.'
+    else
+      FError := 'Windows no pudo ejecutar el BAT. ' +
+        SysErrorMessage(LastErr);
+
+    Synchronize(@SyncFinished);
+    Exit;
+  end;
+
+  try
+    if SEI.hProcess = 0 then
+    begin
+      FError := 'Windows ejecuto el BAT pero no devolvio el proceso.';
+      Synchronize(@SyncFinished);
+      Exit;
+    end;
+
+    WaitForSingleObject(SEI.hProcess, INFINITE);
+
+    if not GetExitCodeProcess(SEI.hProcess, FExitCode) then
+    begin
+      FError := 'No se pudo obtener el codigo de salida del BAT.';
+      FExitCode := 0;
+    end;
+  finally
+    if SEI.hProcess <> 0 then
+      CloseHandle(SEI.hProcess);
+  end;
+
+  Synchronize(@SyncFinished);
+end;
 
 constructor TPingThread.Create(AOwner: TForm1; const ATarget: String);
 begin
@@ -403,6 +532,10 @@ begin
   Font.Size := 9;
   OnDeactivate := @PopupDeactivate;
 
+  FFocusTimer := TTimer.Create(Self);
+  FFocusTimer.Enabled := False;
+  FFocusTimer.Interval := 100;
+  FFocusTimer.OnTimer := @FocusTimerTick;
   FProgress := TProgressBar.Create(Self);
   FProgress.Parent := Self;
   FProgress.Align := alBottom;
@@ -438,9 +571,28 @@ end;
 
 procedure TQuickForm.PopupDeactivate(Sender: TObject);
 begin
-  if not FRunning then
-    Hide;
+  if Assigned(FFocusTimer) then
+    FFocusTimer.Enabled := False;
+
+  Hide;
 end;
+procedure TQuickForm.FocusTimerTick(Sender: TObject);
+begin
+  if not Visible then
+  begin
+    FFocusTimer.Enabled := False;
+    Exit;
+  end;
+
+  { GetForegroundWindow devuelve la ventana superior que tiene
+    realmente el foco en Windows. Si ya no somos nosotros, cerramos. }
+  if GetForegroundWindow <> Handle then
+  begin
+    FFocusTimer.Enabled := False;
+    Hide;
+  end;
+end;
+
 procedure TQuickForm.AddDirectory(const ADirectory: String; AParent: TTreeNode);
 var
   SR: TSearchRec;
@@ -546,9 +698,12 @@ begin
     Exit;
 
   if Owner is TForm1 then
+  begin
+    FFocusTimer.Enabled := False;
+    Hide;
     TForm1(Owner).ExecuteScriptFromQuickMenu(ScriptPath);
+  end;
 end;
-
 procedure TQuickForm.BeginExecution(const AName: String; AUsePing: Boolean);
 begin
   FRunning := True;
@@ -602,6 +757,8 @@ begin
   Show;
   BringToFront;
   FTree.SetFocus;
+
+  FFocusTimer.Enabled := True;
 end;
 
 procedure TForm1.FormCreate(Sender: TObject);
@@ -707,6 +864,10 @@ begin
 
   FContextNode := nil;
   FScriptMenu := TPopupMenu.Create(Self);
+  FExecuteScriptMenuItem := TMenuItem.Create(FScriptMenu);
+  FExecuteScriptMenuItem.Caption := 'Ejecutar';
+  FExecuteScriptMenuItem.OnClick := @ExecuteScript;
+  FScriptMenu.Items.Add(FExecuteScriptMenuItem);
   FEditScriptMenuItem := TMenuItem.Create(FScriptMenu);
 
   FEditScriptMenuItem.Caption := 'Editar BAT';
@@ -737,6 +898,13 @@ procedure TForm1.FormClose(Sender: TObject; var CloseAction: TCloseAction);
 var
   Ini: TIniFile;
 begin
+  if FExiting and Assigned(FBatchThread) then
+  begin
+    FExiting := False;
+    CloseAction := caNone;
+    StatusLabel.Caption := 'BAT en curso. Espera a que termine para salir.';
+    Exit;
+  end;
   if FExiting and Assigned(FPingThread) then
   begin
     FExiting := False;
@@ -2244,6 +2412,22 @@ begin
     CountLabel.Caption := IntToStr(N) + ' scripts';
 end;
 
+procedure TForm1.ExecuteScript(Sender: TObject);
+var
+  TargetPath: String;
+begin
+  if not IsScriptNode(FContextNode) then
+    Exit;
+
+  TargetPath := ScriptNodePath(FContextNode);
+  if not FileExists(TargetPath) then
+    Exit;
+
+  { No ejecutamos el BAT directamente.
+    Reutilizamos la misma interpretacion segura del menu rapido. }
+  ExecuteScriptFromQuickMenu(TargetPath);
+end;
+
 procedure TForm1.EditScript(Sender: TObject);
 
 var
@@ -2398,6 +2582,7 @@ begin
       ScriptTree.Selected := Node;
       ScriptTreeClick(nil);
     end;
+    FExecuteScriptMenuItem.Visible := IsScriptNode(Node);
 
     FEditScriptMenuItem.Visible := IsScriptNode(Node);
     FScriptMenu.PopUp;
@@ -2669,7 +2854,7 @@ procedure TForm1.SaveScriptConfiguration(Sender: TObject);
 var
   SourcePath, TargetPath, DestinationDir, Description, ScriptName: String;
   AddressLine, WifiLine, PingLine: String;
-  AdapterName, S, L, GatewayValue: String;
+  AdapterName, S, L, GatewayValue, ValidationError: String;
   Lines, Output: TStringList;
   I: Integer;
   AddressDone, WifiDone: Boolean;
@@ -2831,6 +3016,19 @@ begin
 
     if Description <> '' then
       Output.Insert(0, ':: description=' + Description);
+    if not ValidateBatchLines(Output, ValidationError) then
+    begin
+      MessageDlg(
+        'BAT no valido',
+        'No se ha guardado ningun cambio.' +
+        LineEnding + LineEnding +
+        ValidationError,
+        mtWarning,
+        [mbOK],
+        0
+      );
+      Exit;
+    end;
 
     try
       Output.SaveToFile(TargetPath);
@@ -2877,8 +3075,12 @@ var
   P: TProcess;
   OutputLines, Args: TStringList;
   NetshPath: String;
-  NetshOutput, LowerOutput: String;
+  NetshOutput, LowerOutput, CommandText: String;
   ExitCode: LongInt;
+  AdapterIndex: Integer;
+  AdapterId, DhcpKeyPath: String;
+  DhcpKey: HKEY;
+  EnableDhcpValue, DhcpDataType, DhcpDataSize: DWORD;
 begin
   Result := False;
   AError := '';
@@ -2887,6 +3089,65 @@ begin
   begin
     AError := 'No hay un adaptador de red seleccionado.';
     Exit;
+  end;
+  { Update 6: DHCP ya habilitado = configuracion aplicada. }
+  if AConfig.UseDhcp then
+  begin
+    AdapterIndex := Adapter.ItemIndex;
+
+    if Assigned(FAdapterGuids) and
+       (AdapterIndex >= 0) and
+       (AdapterIndex < FAdapterGuids.Count) then
+    begin
+      AdapterId := Trim(FAdapterGuids[AdapterIndex]);
+
+      if AdapterId <> '' then
+      begin
+        if AdapterId[1] <> '{' then
+          AdapterId := '{' + AdapterId;
+
+        if AdapterId[Length(AdapterId)] <> '}' then
+          AdapterId := AdapterId + '}';
+
+        DhcpKeyPath :=
+          'SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' +
+          AdapterId;
+
+        DhcpKey := 0;
+
+        if RegOpenKeyExA(
+          HKEY_LOCAL_MACHINE,
+          PAnsiChar(AnsiString(DhcpKeyPath)),
+          0,
+          KEY_READ,
+          DhcpKey
+        ) = ERROR_SUCCESS then
+        begin
+          try
+            EnableDhcpValue := 0;
+            DhcpDataType := 0;
+            DhcpDataSize := SizeOf(EnableDhcpValue);
+
+            if (RegQueryValueExA(
+              DhcpKey,
+              'EnableDHCP',
+              nil,
+              @DhcpDataType,
+              PByte(@EnableDhcpValue),
+              @DhcpDataSize
+            ) = ERROR_SUCCESS) and
+               (DhcpDataType = REG_DWORD) and
+               (EnableDhcpValue <> 0) then
+            begin
+              Result := True;
+              Exit;
+            end;
+          finally
+            RegCloseKey(DhcpKey);
+          end;
+        end;
+      end;
+    end;
   end;
 
   Args := TStringList.Create;
@@ -2897,27 +3158,58 @@ begin
     Args.Add('address');
     Args.Add('name=' + AConfig.AdapterName);
 
+    CommandText :=
+      'netsh interface ipv4 set address name="' +
+      AConfig.AdapterName + '"';
+
     if AConfig.UseDhcp then
-      Args.Add('source=dhcp')
+    begin
+      Args.Add('source=dhcp');
+      CommandText := CommandText + ' source=dhcp';
+    end
     else
     begin
       Args.Add('source=static');
       Args.Add('address=' + AConfig.Address);
       Args.Add('mask=' + AConfig.Mask);
 
+      CommandText := CommandText +
+        ' source=static' +
+        ' address=' + AConfig.Address +
+        ' mask=' + AConfig.Mask;
+
       if AConfig.Gateway <> '' then
-        Args.Add('gateway=' + AConfig.Gateway)
+      begin
+        Args.Add('gateway=' + AConfig.Gateway);
+        CommandText := CommandText +
+          ' gateway=' + AConfig.Gateway;
+      end
       else
+      begin
         Args.Add('gateway=none');
+        CommandText := CommandText + ' gateway=none';
+      end;
     end;
-
-    Args.Add('store=persistent');
-
-    { Sin tarea elevada seguimos siendo funcionales:
-      Windows pide UAC solo para esta operacion. }
+{ Si LaguNETbi no esta elevado, netsh se lanza mediante ShellExecuteEx.
+      Esa ruta permite obtener el codigo de salida, pero no las tuberias
+      stdout/stderr del proceso elevado. }
     if not LaguNETbiIsElevated then
     begin
       Result := LaguNETbiRunElevatedNetsh(Args, AError);
+
+      if not Result then
+      begin
+        if AError = '' then
+          AError := 'netsh fallo sin devolver un mensaje.';
+
+        AError := AError +
+          LineEnding +
+          LineEnding +
+          'Modo: elevacion UAC externa.' +
+          LineEnding +
+          'Comando: ' + CommandText;
+      end;
+
       Exit;
     end;
 
@@ -2945,7 +3237,11 @@ begin
       except
         on E: Exception do
         begin
-          AError := 'No se pudo iniciar netsh.exe: ' + E.Message;
+          AError :=
+            'No se pudo iniciar netsh.exe: ' + E.Message +
+            LineEnding +
+            LineEnding +
+            'Comando: ' + CommandText;
           Exit;
         end;
       end;
@@ -2956,19 +3252,46 @@ begin
         OutputLines.LoadFromStream(P.Output);
         NetshOutput := Trim(OutputLines.Text);
       except
-        NetshOutput := '';
+        on E: Exception do
+          NetshOutput :=
+            '[No se pudo leer la salida: ' + E.Message + ']';
       end;
 
-      NetshOutput := StringReplace(NetshOutput, #13, ' ', [rfReplaceAll]);
-      NetshOutput := StringReplace(NetshOutput, #10, ' ', [rfReplaceAll]);
+      NetshOutput := StringReplace(
+        NetshOutput, #13#10, LineEnding, [rfReplaceAll]
+      );
+      NetshOutput := StringReplace(
+        NetshOutput, #13, LineEnding, [rfReplaceAll]
+      );
+
       LowerOutput := LowerCase(NetshOutput);
 
       if ExitCode <> 0 then
       begin
-        AError := 'netsh.exe devolvio el codigo ' +
+        AError :=
+          'netsh.exe devolvio el codigo ' +
           IntToStr(ExitCode) + '.';
+
         if NetshOutput <> '' then
-          AError := AError + ' ' + NetshOutput;
+          AError := AError +
+            LineEnding +
+            LineEnding +
+            'Salida de netsh:' +
+            LineEnding +
+            NetshOutput
+        else
+          AError := AError +
+            LineEnding +
+            LineEnding +
+            'netsh no devolvio texto por stdout/stderr.';
+
+        AError := AError +
+          LineEnding +
+          LineEnding +
+          'Comando:' +
+          LineEnding +
+          CommandText;
+
         Exit;
       end;
 
@@ -2980,9 +3303,24 @@ begin
          (Pos('access is denied', LowerOutput) > 0) or
          (Pos('acceso denegado', LowerOutput) > 0) then
       begin
-        AError := 'netsh no pudo aplicar la configuracion.';
+        AError :=
+          'netsh no pudo aplicar la configuracion.';
+
         if NetshOutput <> '' then
-          AError := AError + ' ' + NetshOutput;
+          AError := AError +
+            LineEnding +
+            LineEnding +
+            'Salida de netsh:' +
+            LineEnding +
+            NetshOutput;
+
+        AError := AError +
+          LineEnding +
+          LineEnding +
+          'Comando:' +
+          LineEnding +
+          CommandText;
+
         Exit;
       end;
 
@@ -2994,6 +3332,24 @@ begin
   finally
     Args.Free;
   end;
+end;
+procedure TForm1.ShowTrayNotification(
+  const AText: String;
+  AWarning: Boolean
+);
+begin
+  if not FTrayReady then
+    Exit;
+
+  TrayIcon.BalloonTitle := 'LaguNET bi';
+  TrayIcon.BalloonHint := AText;
+
+  if AWarning then
+    TrayIcon.BalloonFlags := bfWarning
+  else
+    TrayIcon.BalloonFlags := bfInfo;
+
+  TrayIcon.ShowBalloonHint;
 end;
 
 procedure TForm1.StartPingTest(const ATarget: String);
@@ -3031,7 +3387,6 @@ begin
   { El hilo ya no volvera a tocar el formulario despues de este callback. }
   FPingThread := nil;
 
-  { La barra representa solo la espera; con resultado ya no hace falta. }
   PingProgress.Position := 0;
   PingProgress.Visible := False;
 
@@ -3039,16 +3394,25 @@ begin
   begin
     StatusLabel.Font.Color := clRed;
     StatusLabel.Caption := 'PING NOK - error: ' + AError;
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Conexion NOK', True);
   end
   else if AReplies > 0 then
   begin
     StatusLabel.Font.Color := clGreen;
     StatusLabel.Caption := 'PING OK';
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Conexion OK', False);
   end
   else
   begin
     StatusLabel.Font.Color := clRed;
     StatusLabel.Caption := 'PING NOK';
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Conexion NOK', True);
   end;
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then
@@ -3064,47 +3428,271 @@ begin
   FApplyFromQuickMenu := False;
 end;
 
-procedure TForm1.ExecuteScriptFromQuickMenu(const AFileName: String);
+function TForm1.ValidateBatchLines(
+  ALines: TStrings;
+  out AError: String
+): Boolean;
 var
-  TestStream: TFileStream;
+  I: Integer;
+  S, L: String;
+
+  function HasForbiddenShellSyntax(const AText: String): Boolean;
+  begin
+    Result :=
+      (Pos('&', AText) > 0) or
+      (Pos('|', AText) > 0) or
+      (Pos('>', AText) > 0) or
+      (Pos('<', AText) > 0) or
+      (Pos('^', AText) > 0) or
+      (Pos('%', AText) > 0) or
+      (Pos('!', AText) > 0) or
+      (Pos('(', AText) > 0) or
+      (Pos(')', AText) > 0);
+  end;
+
+  procedure InvalidLine(ALine: Integer; const AText: String);
+  begin
+    AError :=
+      'Linea ' + IntToStr(ALine) +
+      ' no permitida:' + LineEnding +
+      AText;
+  end;
+
+  function IsAllowedIPv4Command(const ALine: String): Boolean;
+  var
+    LowerLine: String;
+  begin
+    LowerLine := LowerCase(ALine);
+
+    Result :=
+      (Pos('netsh interface ipv4 set address ', LowerLine) = 1) and
+      (CommandValue(ALine, 'name') <> '') and
+      (
+        (Pos('source=dhcp', LowerLine) > 0) or
+        (Pos(' static ', LowerLine) > 0) or
+        (Pos('source=static', LowerLine) > 0)
+      );
+  end;
+
+  function IsAllowedWifiCommand(const ALine: String): Boolean;
+  begin
+    Result :=
+      (Pos('netsh wlan connect ', LowerCase(ALine)) = 1) and
+      (CommandValue(ALine, 'name') <> '');
+  end;
+
 begin
-  if Assigned(FPingThread) then
-    Exit;
+  Result := False;
+  AError := '';
 
-  if not FileExists(AFileName) then
+  if not Assigned(ALines) then
+  begin
+    AError := 'No hay contenido BAT para validar.';
     Exit;
+  end;
 
-  { Comprobamos que el BAT se puede leer antes de modificar la UI.
-    No se ejecuta el archivo: se carga y se interpreta como siempre. }
-  try
-    TestStream := TFileStream.Create(
-      AFileName,
-      fmOpenRead or fmShareDenyNone
-    );
-    TestStream.Free;
-  except
-    on E: Exception do
+  for I := 0 to ALines.Count - 1 do
+  begin
+    S := Trim(ALines[I]);
+
+    if S = '' then
+      Continue;
+
+    if HasForbiddenShellSyntax(S) then
     begin
-      if Assigned(FQuickForm) then
-        FQuickForm.FinishExecution(
-          'No se pudo leer ' + ExtractFileName(AFileName)
-        );
+      InvalidLine(I + 1, S);
       Exit;
     end;
+
+    L := LowerCase(S);
+
+    if Pos('::', L) = 1 then
+      Continue;
+
+    if (L = 'rem') or (Pos('rem ', L) = 1) then
+      Continue;
+
+    if (L = '@echo off') or
+       (L = 'echo off') or
+       (L = 'pause') or
+       (L = '@pause') then
+      Continue;
+
+    if Pos('echo ', L) = 1 then
+      Continue;
+
+    if IsAllowedIPv4Command(S) then
+      Continue;
+
+    if IsAllowedWifiCommand(S) then
+      Continue;
+
+    InvalidLine(I + 1, S);
+    Exit;
+  end;
+
+  Result := True;
+end;
+
+
+function TForm1.ValidateBatchForExecution(
+  const AFileName: String;
+  out AError: String
+): Boolean;
+var
+  Lines: TStringList;
+begin
+  Result := False;
+  AError := '';
+
+  if not FileExists(AFileName) then
+  begin
+    AError := 'El BAT no existe.';
+    Exit;
+  end;
+
+  if not SameText(ExtractFileExt(AFileName), '.bat') then
+  begin
+    AError := 'Solo se permite ejecutar archivos .bat.';
+    Exit;
+  end;
+
+  Lines := TStringList.Create;
+  try
+    try
+      Lines.LoadFromFile(AFileName);
+    except
+      on E: Exception do
+      begin
+        AError := 'No se pudo leer el BAT: ' + E.Message;
+        Exit;
+      end;
+    end;
+
+    Result := ValidateBatchLines(Lines, AError);
+  finally
+    Lines.Free;
+  end;
+end;
+procedure TForm1.BatchThreadFinished(
+  AExitCode: DWORD;
+  const AError: String;
+  AUsePing: Boolean;
+  const APingTarget: String
+);
+begin
+  FBatchThread := nil;
+
+  if AError <> '' then
+  begin
+    StatusLabel.Font.Color := clRed;
+    StatusLabel.Caption := AError;
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Error al ejecutar BAT', True);
+
+    if FApplyFromQuickMenu and Assigned(FQuickForm) then
+      FQuickForm.FinishExecution(StatusLabel.Caption);
+
+    FinishApplyUI;
+    Exit;
+  end;
+
+  if AUsePing and IsValidIPv4(APingTarget) then
+  begin
+    StatusLabel.Font.Color := TColor(7760478);
+    StatusLabel.Caption := 'BAT ejecutado. Comprobando conexion...';
+
+    if FApplyFromQuickMenu and Assigned(FQuickForm) then
+      FQuickForm.SetIPv4Done;
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Comprobando conexion...', False);
+
+    StartPingTest(APingTarget);
+    Exit;
+  end;
+
+  if AExitCode = 0 then
+  begin
+    StatusLabel.Font.Color := TColor(7760478);
+    StatusLabel.Caption := 'BAT ejecutado correctamente.';
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Configuracion aplicada', False);
+  end
+  else
+  begin
+    StatusLabel.Font.Color := clRed;
+    StatusLabel.Caption :=
+      'BAT finalizado con codigo ' + IntToStr(AExitCode) + '.';
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification(
+        'BAT finalizado con codigo ' + IntToStr(AExitCode),
+        True
+      );
+  end;
+
+  if FApplyFromQuickMenu and Assigned(FQuickForm) then
+    FQuickForm.FinishExecution(StatusLabel.Caption);
+
+  FinishApplyUI;
+end;
+
+procedure TForm1.ExecuteScriptFromQuickMenu(const AFileName: String);
+var
+  ValidationError: String;
+  UsePing: Boolean;
+  PingTarget: String;
+begin
+  if Assigned(FPingThread) or Assigned(FBatchThread) then
+    Exit;
+
+  if not ValidateBatchForExecution(AFileName, ValidationError) then
+  begin
+    StatusLabel.Font.Color := clRed;
+    StatusLabel.Caption := 'BAT no valido. No se ha ejecutado nada.';
+
+    MessageDlg(
+      'BAT no valido',
+      ValidationError,
+      mtWarning,
+      [mbOK],
+      0
+    );
+
+    if Assigned(FQuickForm) then
+      FQuickForm.FinishExecution(StatusLabel.Caption);
+
+    Exit;
   end;
 
   SelectScriptInTree(AFileName);
   LoadScriptConfiguration(AFileName);
+
+  UsePing := PingBox.Checked;
+  PingTarget := Trim(PingEdit.Text);
 
   FApplyFromQuickMenu := True;
 
   if Assigned(FQuickForm) then
     FQuickForm.BeginExecution(
       ExtractFileName(AFileName),
-      PingBox.Checked
+      UsePing
     );
 
-  PreviewAction(nil);
+  StatusLabel.Font.Color := TColor(7760478);
+  StatusLabel.Caption := 'Ejecutando BAT validado...';
+
+  FBatchThread := TBatchThread.Create(
+    Self,
+    AFileName,
+    UsePing,
+    PingTarget
+  );
+
+  FBatchThread.Start;
 end;
 
 procedure TForm1.PreviewAction(Sender: TObject);
@@ -3134,6 +3722,9 @@ begin
   begin
     StatusLabel.Caption := 'Configuracion no valida. No se ha aplicado nada.';
 
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Configuracion no valida', True);
+
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.FinishExecution(StatusLabel.Caption);
 
@@ -3152,11 +3743,22 @@ begin
   finally
     Screen.Cursor := crDefault;
   end;
-
   if not IPv4OK then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := 'Error: ' + ErrorText;
+    StatusLabel.Caption := 'Error al aplicar configuracion IPv4.';
+
+    { Update 4: diagnostico visible completo. }
+    MessageDlg(
+      'Diagnostico netsh',
+      ErrorText,
+      mtError,
+      [mbOK],
+      0
+    );
+
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Error al aplicar configuracion', True);
 
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.FinishExecution(StatusLabel.Caption);
@@ -3164,12 +3766,14 @@ begin
     FinishApplyUI;
     Exit;
   end;
-
-  if FApplyFromQuickMenu and Assigned(FQuickForm) then
+if FApplyFromQuickMenu and Assigned(FQuickForm) then
     FQuickForm.SetIPv4Done;
 
   if Config.UsePing then
   begin
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Comprobando conexion...', False);
+
     StartPingTest(Config.PingTarget);
     Exit;
   end;
@@ -3181,6 +3785,9 @@ begin
   else
     StatusLabel.Caption :=
       'Configuracion IPv4 aplicada a ' + Config.AdapterName + '.';
+
+  if FApplyFromQuickMenu then
+    ShowTrayNotification('Configuracion aplicada', False);
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then
     FQuickForm.FinishExecution(StatusLabel.Caption);
