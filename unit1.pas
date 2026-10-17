@@ -172,8 +172,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FPingThread: TThread;
     FBatchThread: TThread;
     FApplyFromQuickMenu: Boolean;
-    FActivePingTarget: String;
-    FDraggedNode: TTreeNode;
+FDraggedNode: TTreeNode;
     FContextNode: TTreeNode;
     FScriptMenu: TPopupMenu;
     FExecuteScriptMenuItem: TMenuItem;
@@ -217,7 +216,10 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
       const AConfig: TNetworkConfig;
       out AError: String
     ): Boolean;
-    procedure StartPingTest(const ATarget: String);
+    function ExecuteWifiConfiguration(
+      const AConfig: TNetworkConfig;
+      out AError: String
+    ): Boolean;    procedure StartPingTest(const ATarget: String);
     procedure PingThreadProgress(AAttempt, AReplies: Integer);
     procedure PingThreadFinished(AReplies: Integer; const AError: String);
     procedure ShowTrayNotification(const AText: String; AWarning: Boolean);
@@ -2854,10 +2856,8 @@ procedure TForm1.SaveScriptConfiguration(Sender: TObject);
 var
   SourcePath, TargetPath, DestinationDir, Description, ScriptName: String;
   AddressLine, WifiLine, PingLine: String;
-  AdapterName, S, L, GatewayValue, ValidationError: String;
-  Lines, Output: TStringList;
-  I: Integer;
-  AddressDone, WifiDone: Boolean;
+  AdapterName, GatewayValue: String;
+  Output: TStringList;
   EditingExisting, ReplacingOther: Boolean;
 begin
   UpdateValidationUI;
@@ -2871,8 +2871,12 @@ begin
   if not (IsScriptNode(ScriptTree.Selected) or
     IsFolderNode(ScriptTree.Selected)) then
   begin
-    MessageDlg('Selecciona un script o una carpeta.',
-      mtInformation, [mbOK], 0);
+    MessageDlg(
+      'Selecciona un script o una carpeta.',
+      mtInformation,
+      [mbOK],
+      0
+    );
     Exit;
   end;
 
@@ -2881,8 +2885,12 @@ begin
 
   if DestinationDir = '' then
   begin
-    MessageDlg('No se pudo determinar la carpeta de destino.',
-      mtError, [mbOK], 0);
+    MessageDlg(
+      'No se pudo determinar la carpeta de destino.',
+      mtError,
+      [mbOK],
+      0
+    );
     Exit;
   end;
 
@@ -2890,21 +2898,32 @@ begin
     ScriptName + '.bat';
 
   EditingExisting := IsScriptNode(ScriptTree.Selected);
+
   if EditingExisting then
     SourcePath := ScriptNodePath(ScriptTree.Selected)
   else
     SourcePath := '';
 
-  ReplacingOther := FileExists(TargetPath) and
-    ((SourcePath = '') or
-     (not SameText(ExpandFileName(SourcePath), ExpandFileName(TargetPath))));
+  ReplacingOther :=
+    FileExists(TargetPath) and
+    (
+      (SourcePath = '') or
+      (not SameText(
+        ExpandFileName(SourcePath),
+        ExpandFileName(TargetPath)
+      ))
+    );
 
   if ReplacingOther then
   begin
     if MessageDlg(
-      'Ya existe "' + ExtractFileName(TargetPath) + '".' + LineEnding +
-      '¿Quieres reemplazarlo?',
-      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+      'Ya existe "' + ExtractFileName(TargetPath) + '".' +
+      LineEnding +
+      'Â¿Quieres reemplazarlo?',
+      mtConfirmation,
+      [mbYes, mbNo],
+      0
+    ) <> mrYes then
       Exit;
   end;
 
@@ -2914,18 +2933,28 @@ begin
 
   if AdapterName = '' then
   begin
-    MessageDlg('Selecciona un adaptador de red.',
-      mtInformation, [mbOK], 0);
+    MessageDlg(
+      'Selecciona un adaptador de red.',
+      mtInformation,
+      [mbOK],
+      0
+    );
     Exit;
   end;
 
   if AutomaticBox.Checked then
-    AddressLine := 'netsh interface ipv4 set address name="' +
-      AdapterName + '" source=dhcp'
+    AddressLine :=
+      'netsh interface ipv4 set address name="' +
+      AdapterName +
+      '" source=dhcp'
   else
   begin
-    AddressLine := 'netsh interface ipv4 set address name="' +
-      AdapterName + '" static ' + Trim(AddressEdit.Text) + ' ' +
+    AddressLine :=
+      'netsh interface ipv4 set address name="' +
+      AdapterName +
+      '" static ' +
+      Trim(AddressEdit.Text) +
+      ' ' +
       Trim(MaskEdit.Text);
 
     if GatewayValue <> '' then
@@ -2933,8 +2962,12 @@ begin
   end;
 
   if WifiBox.Enabled and WifiBox.Checked then
-    WifiLine := 'netsh wlan connect name ="' + Trim(WifiCombo.Text) +
-      '" ssid ="' + Trim(WifiCombo.Text) + '"'
+    WifiLine :=
+      'netsh wlan connect name ="' +
+      Trim(WifiCombo.Text) +
+      '" ssid ="' +
+      Trim(WifiCombo.Text) +
+      '"'
   else
     WifiLine := '';
 
@@ -2943,117 +2976,56 @@ begin
   else
     PingLine := '';
 
-  Lines := TStringList.Create;
+  { El BAT representa exclusivamente el estado actual de LaguNETbi.
+    No se conserva contenido anterior. }
   Output := TStringList.Create;
   try
-    if EditingExisting then
-    begin
-      try
-        Lines.LoadFromFile(SourcePath);
-      except
-        MessageDlg('No se pudo leer el script antes de guardarlo.',
-          mtError, [mbOK], 0);
-        Exit;
-      end;
-    end
-    else
-      Lines.Clear;
+    if Description <> '' then
+      Output.Add(':: description=' + Description);
 
-    AddressDone := False;
-    WifiDone := False;
+    if PingLine <> '' then
+      Output.Add(PingLine);
 
-    for I := 0 to Lines.Count - 1 do
-    begin
-      S := Lines[I];
-      L := LowerCase(Trim(S));
+    Output.Add(AddressLine);
 
-      if Pos(':: description=', L) = 1 then
-      begin
-        Continue;
-      end;
-
-      if Pos('netsh interface ipv4 set address', L) > 0 then
-      begin
-        if not AddressDone then
-          Output.Add(AddressLine);
-        AddressDone := True;
-        Continue;
-      end;
-
-      if (Pos('netsh wlan connect', L) > 0) or
-        SameText(Trim(S), ':: No conectar') then
-      begin
-        if not WifiDone then
-        begin
-          if WifiLine <> '' then
-            Output.Add(WifiLine);
-          WifiDone := True;
-        end;
-        Continue;
-      end;
-
-      if (Pos(':: testping=', L) = 1) or
-        SameText(Trim(S), ':: No test Ping') then
-      begin
-        Continue;
-      end;
-
-      { Lineas custom: se conservan al editar/renombrar un BAT existente. }
-      Output.Add(S);
-    end;
-
-    if not AddressDone then
-      Output.Add(AddressLine);
-
-    if (not WifiDone) and (WifiLine <> '') then
+    if WifiLine <> '' then
       Output.Add(WifiLine);
 
-    { Metadatos LaguNETbi: siempre arriba.
-      Insertamos testPing primero y description despues en posicion 0
-      para que el orden final sea description -> testPing. }
-    if PingLine <> '' then
-      Output.Insert(0, PingLine);
-
-    if Description <> '' then
-      Output.Insert(0, ':: description=' + Description);
-    if not ValidateBatchLines(Output, ValidationError) then
-    begin
+    try
+      Output.SaveToFile(TargetPath);
+    except
       MessageDlg(
-        'BAT no valido',
-        'No se ha guardado ningun cambio.' +
-        LineEnding + LineEnding +
-        ValidationError,
-        mtWarning,
+        'No se pudo guardar el script.',
+        mtError,
         [mbOK],
         0
       );
       Exit;
     end;
-
-    try
-      Output.SaveToFile(TargetPath);
-    except
-      MessageDlg('No se pudo guardar el script.',
-        mtError, [mbOK], 0);
-      Exit;
-    end;
   finally
     Output.Free;
-    Lines.Free;
   end;
 
-  { Si era un renombrado, eliminamos el archivo con el nombre anterior
-    solo despues de haber guardado correctamente el nuevo. }
+  { Si se ha renombrado, eliminamos el archivo anterior solo despues
+    de guardar correctamente el nuevo. }
   if EditingExisting and
-    (not SameText(ExpandFileName(SourcePath), ExpandFileName(TargetPath))) then
+    (not SameText(
+      ExpandFileName(SourcePath),
+      ExpandFileName(TargetPath)
+    )) then
   begin
-    if FileExists(SourcePath) and (not DeleteFile(SourcePath)) then
+    if FileExists(SourcePath) and
+      (not DeleteFile(SourcePath)) then
     begin
       MessageDlg(
         'El nuevo script se guardo correctamente, pero no se pudo eliminar ' +
-        'el archivo con el nombre anterior.' + LineEnding +
+        'el archivo con el nombre anterior.' +
+        LineEnding +
         'Revisa ambos archivos antes de continuar.',
-        mtWarning, [mbOK], 0);
+        mtWarning,
+        [mbOK],
+        0
+      );
     end;
   end;
 
@@ -3066,7 +3038,6 @@ begin
   UpdateValidationUI;
   StatusLabel.Caption := 'Guardado: ' + ExtractFileName(TargetPath);
 end;
-
 function TForm1.ExecuteIPv4Configuration(
   const AConfig: TNetworkConfig;
   out AError: String
@@ -3333,6 +3304,120 @@ begin
     Args.Free;
   end;
 end;
+function TForm1.ExecuteWifiConfiguration(
+  const AConfig: TNetworkConfig;
+  out AError: String
+): Boolean;
+var
+  P: TProcess;
+  Args: TStringList;
+  NetshPath, CommandText: String;
+  ExitCode: LongInt;
+begin
+  Result := False;
+  AError := '';
+
+  if not (AConfig.WifiSupported and AConfig.UseWifi) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  if Trim(AConfig.WifiProfile) = '' then
+  begin
+    AError := 'No hay un perfil Wi-Fi seleccionado.';
+    Exit;
+  end;
+
+  Args := TStringList.Create;
+  try
+    Args.Add('wlan');
+    Args.Add('connect');
+    Args.Add('name=' + AConfig.WifiProfile);
+    Args.Add('ssid=' + AConfig.WifiProfile);
+
+    CommandText :=
+      'netsh wlan connect name="' +
+      AConfig.WifiProfile +
+      '" ssid="' +
+      AConfig.WifiProfile +
+      '"';
+
+    if not LaguNETbiIsElevated then
+    begin
+      Result := LaguNETbiRunElevatedNetsh(Args, AError);
+
+      if not Result then
+      begin
+        if AError = '' then
+          AError := 'netsh fallo sin devolver un mensaje.';
+
+        AError := AError +
+          LineEnding +
+          LineEnding +
+          'Comando:' +
+          LineEnding +
+          CommandText;
+      end;
+
+      Exit;
+    end;
+
+    NetshPath := LaguNETbiNetshPath;
+
+    if (NetshPath = '') or not FileExists(NetshPath) then
+    begin
+      AError := 'No se encontro netsh.exe en System32.';
+      Exit;
+    end;
+
+    P := TProcess.Create(nil);
+    try
+      P.Executable := NetshPath;
+      P.Parameters.Assign(Args);
+      P.Options := [poWaitOnExit, poNoConsole];
+
+      try
+        P.Execute;
+      except
+        on E: Exception do
+        begin
+          AError :=
+            'No se pudo iniciar netsh.exe: ' +
+            E.Message +
+            LineEnding +
+            LineEnding +
+            'Comando:' +
+            LineEnding +
+            CommandText;
+          Exit;
+        end;
+      end;
+
+      ExitCode := P.ExitStatus;
+
+      if ExitCode <> 0 then
+      begin
+        AError :=
+          'netsh.exe devolvio el codigo ' +
+          IntToStr(ExitCode) +
+          '.' +
+          LineEnding +
+          LineEnding +
+          'Comando:' +
+          LineEnding +
+          CommandText;
+        Exit;
+      end;
+
+      Result := True;
+    finally
+      P.Free;
+    end;
+  finally
+    Args.Free;
+  end;
+end;
 procedure TForm1.ShowTrayNotification(
   const AText: String;
   AWarning: Boolean
@@ -3356,10 +3441,7 @@ procedure TForm1.StartPingTest(const ATarget: String);
 begin
   if Assigned(FPingThread) then
     Exit;
-
-  FActivePingTarget := ATarget;
-
-  PingProgress.Min := 0;
+PingProgress.Min := 0;
   PingProgress.Max := 10;
   PingProgress.Position := 0;
   PingProgress.Visible := True;
@@ -3700,13 +3782,18 @@ var
   Config: TNetworkConfig;
   Validation: TConfigurationValidation;
   ErrorText: String;
-  IPv4OK: Boolean;
+  IPv4OK, WifiOK: Boolean;
 begin
-  { Establecer SIEMPRE parte de la UI actual.
-    El BAT seleccionado no se ejecuta. }
+  { Establecer aplica siempre la configuracion actual de la interfaz.
+    No ejecuta ni modifica el BAT seleccionado. }
 
-  if Sender = ApplyButton then
-    FApplyFromQuickMenu := False;
+  FApplyFromQuickMenu := False;
+
+  if Assigned(FBatchThread) then
+  begin
+    StatusLabel.Caption := 'Hay un BAT en ejecucion. Espera a que termine.';
+    Exit;
+  end;
 
   if Assigned(FPingThread) then
   begin
@@ -3721,14 +3808,6 @@ begin
   if not Validation.ConfigOK then
   begin
     StatusLabel.Caption := 'Configuracion no valida. No se ha aplicado nada.';
-
-    if FApplyFromQuickMenu then
-      ShowTrayNotification('Configuracion no valida', True);
-
-    if FApplyFromQuickMenu and Assigned(FQuickForm) then
-      FQuickForm.FinishExecution(StatusLabel.Caption);
-
-    FApplyFromQuickMenu := False;
     Exit;
   end;
 
@@ -3743,12 +3822,12 @@ begin
   finally
     Screen.Cursor := crDefault;
   end;
+
   if not IPv4OK then
   begin
     StatusLabel.Font.Color := clRed;
     StatusLabel.Caption := 'Error al aplicar configuracion IPv4.';
 
-    { Update 4: diagnostico visible completo. }
     MessageDlg(
       'Diagnostico netsh',
       ErrorText,
@@ -3757,40 +3836,61 @@ begin
       0
     );
 
-    if FApplyFromQuickMenu then
-      ShowTrayNotification('Error al aplicar configuracion', True);
-
-    if FApplyFromQuickMenu and Assigned(FQuickForm) then
-      FQuickForm.FinishExecution(StatusLabel.Caption);
-
     FinishApplyUI;
-    Exit;
-  end;
-if FApplyFromQuickMenu and Assigned(FQuickForm) then
-    FQuickForm.SetIPv4Done;
-
-  if Config.UsePing then
-  begin
-    if FApplyFromQuickMenu then
-      ShowTrayNotification('Comprobando conexion...', False);
-
-    StartPingTest(Config.PingTarget);
     Exit;
   end;
 
   if Config.WifiSupported and Config.UseWifi then
+  begin
+    Screen.Cursor := crHourGlass;
+    StatusLabel.Font.Color := TColor(7760478);
+    StatusLabel.Caption := 'Conectando Wi-Fi...';
+    Application.ProcessMessages;
+
+    try
+      WifiOK := ExecuteWifiConfiguration(Config, ErrorText);
+    finally
+      Screen.Cursor := crDefault;
+    end;
+
+    if not WifiOK then
+    begin
+      StatusLabel.Font.Color := clRed;
+      StatusLabel.Caption := 'Error al conectar Wi-Fi.';
+
+      MessageDlg(
+        'Diagnostico netsh',
+        ErrorText,
+        mtError,
+        [mbOK],
+        0
+      );
+
+      FinishApplyUI;
+      Exit;
+    end;
+  end;
+
+  if Config.UsePing then
+  begin
+    StartPingTest(Config.PingTarget);
+    Exit;
+  end;
+
+  StatusLabel.Font.Color := TColor(7760478);
+
+  if Config.WifiSupported and Config.UseWifi then
     StatusLabel.Caption :=
-      'IPv4 aplicada a ' + Config.AdapterName +
-      '. Wi-Fi aun no se ejecuta en esta prueba.'
+      'Configuracion aplicada a ' +
+      Config.AdapterName +
+      '. Wi-Fi: ' +
+      Config.WifiProfile +
+      '.'
   else
     StatusLabel.Caption :=
-      'Configuracion IPv4 aplicada a ' + Config.AdapterName + '.';
-
-  if FApplyFromQuickMenu then
-    ShowTrayNotification('Configuracion aplicada', False);
-
-  if FApplyFromQuickMenu and Assigned(FQuickForm) then
-    FQuickForm.FinishExecution(StatusLabel.Caption);
+      'Configuracion IPv4 aplicada a ' +
+      Config.AdapterName +
+      '.';
 
   FinishApplyUI;
 end;
