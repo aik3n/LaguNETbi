@@ -706,7 +706,6 @@ procedure WlanFreeMemory(
 
 procedure TForm1.FormCreate(Sender: TObject);
 var
-  LogoPath: String;
   InfoBmp: TBitmap;
   Ini: TIniFile;
 begin
@@ -740,6 +739,8 @@ begin
   end;
 
   FTrayReady := TrayIcon.Show;
+  { Si falla el tray, mostrar la ventana para no dejar la app inaccesible. }
+  Application.ShowMainForm := not FTrayReady;
   if not FTrayReady then TrayIcon.Hide;
 
   FAdapterTypes := TStringList.Create;
@@ -753,6 +754,26 @@ begin
 
   FScriptsPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'scripts';
   FIniPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'LaguNETbi.ini';
+
+  { El INI es portable: vive junto al EXE, no en el directorio de trabajo.
+    La primera ejecucion lo crea; las siguientes respetan todos sus valores. }
+  if not FileExists(FIniPath) then
+  begin
+    try
+      Ini := TIniFile.Create(FIniPath);
+      try
+        Ini.WriteInteger('Ping', 'Timeout', 10);
+      finally
+        Ini.Free;
+      end;
+    except
+      on E: Exception do
+        ShowTrayNotification(
+          'No se pudo crear LaguNETbi.ini. Comprueba los permisos de la carpeta.',
+          True
+        );
+    end;
+  end;
 
 
   if FileExists(FIniPath) then
@@ -790,21 +811,6 @@ begin
   NameEdit.Enabled := False;
   DescriptionEdit.Enabled := False;
 
-  LogoPath := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
-    'assets' + PathDelim + 'LaguNET bi logo.png';
-
-  if FileExists(LogoPath) then
-  begin
-    try
-      BrandImage.Picture.LoadFromFile(LogoPath);
-    except
-      BrandImage.Visible := False;
-    end;
-  end
-  else
-  begin
-    BrandImage.Visible := False;
-  end;
 
   FContextNode := nil;
   FScriptMenu := TPopupMenu.Create(Self);

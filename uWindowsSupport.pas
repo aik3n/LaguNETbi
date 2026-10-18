@@ -24,7 +24,7 @@ function PrepareLaguNETbiStartup: Boolean;
 implementation
 
 uses
-  Windows, ShellApi, SysUtils, Process, Forms;
+  Windows, ShellApi, SysUtils, Process, Forms, ActiveX, ComObj, Variants;
 
 type
   TLaguNETbiTokenElevation = record
@@ -98,39 +98,6 @@ begin
   Result := IncludeTrailingPathDelimiter(Result) + 'netsh.exe';
 end;
 
-function StartLaguNETbiScheduledTask: Boolean;
-var
-  P: TProcess;
-  SchTasksPath: String;
-begin
-  Result := False;
-
-  SchTasksPath := IncludeTrailingPathDelimiter(
-    ExtractFileDir(LaguNETbiNetshPath)
-  ) + 'schtasks.exe';
-
-  if not FileExists(SchTasksPath) then
-    Exit;
-
-  P := TProcess.Create(nil);
-  try
-    P.Executable := SchTasksPath;
-    P.Options := [poWaitOnExit, poNoConsole];
-    P.Parameters.Add('/Run');
-    P.Parameters.Add('/TN');
-    P.Parameters.Add('LaguNETbi');
-
-    try
-      P.Execute;
-      Result := P.ExitStatus = 0;
-    except
-      Result := False;
-    end;
-  finally
-    P.Free;
-  end;
-end;
-
 function LaguNETbiSchtasksPath: String;
 begin
   Result := IncludeTrailingPathDelimiter(
@@ -168,29 +135,12 @@ begin
   end;
 end;
 
+{ El check refleja solo el inicio automatico de esta copia. }
+function LaguNETbiTaskTargetsThisExe: Boolean; forward;
+
 function LaguNETbiStartupTaskExists: Boolean;
-var
-  Args: TStringList;
-  ExitCode: LongInt;
-  TaskExe: String;
 begin
-  Result := False;
-  TaskExe := LaguNETbiSchtasksPath;
-
-  if (TaskExe = '') or not FileExists(TaskExe) then
-    Exit;
-
-  Args := TStringList.Create;
-  try
-    Args.Add('/Query');
-    Args.Add('/TN');
-    Args.Add('LaguNETbi');
-
-    if LaguNETbiRunProcess(TaskExe, Args, ExitCode) then
-      Result := ExitCode = 0;
-  finally
-    Args.Free;
-  end;
+  Result := LaguNETbiTaskTargetsThisExe;
 end;
 
 function LaguNETbiPowerShellPath: String;
@@ -270,6 +220,9 @@ var
   TaskExe, ExePath: String;
 begin
   Result := False;
+  { Nunca eliminar una tarea perteneciente a otra copia. }
+  if not AEnable and not LaguNETbiTaskTargetsThisExe then
+    Exit;
   TaskExe := LaguNETbiSchtasksPath;
 
   if (TaskExe = '') or not FileExists(TaskExe) then
@@ -488,6 +441,98 @@ begin
   end;
 end;
 
+function LaguNETbiQueryProcessImageNameW(
+  AProcess: THandle; AFlags: DWORD; ABuffer: PWideChar;
+  var ALength: DWORD
+): BOOL; stdcall; external 'kernel32.dll' name 'QueryFullProcessImageNameW';
+
+{ No confundimos una copia portable con la instancia de otra carpeta. }
+function LaguNETbiSameExeAsWindow(AWindow: HWND): Boolean;
+const
+  PROCESS_QUERY_LIMITED_INFORMATION_LAGUNET = $1000;
+var
+  ProcessId, NameLength: DWORD;
+  ProcessHandle: THandle;
+  Buffer: array[0..2047] of WideChar;
+  OtherExe: String;
+begin
+  Result := False;
+  ProcessId := 0;
+  GetWindowThreadProcessId(AWindow, @ProcessId);
+  if ProcessId = 0 then
+    Exit;
+
+  ProcessHandle := OpenProcess(
+    PROCESS_QUERY_LIMITED_INFORMATION_LAGUNET, False, ProcessId
+  );
+  if ProcessHandle = 0 then
+    Exit;
+  try
+    NameLength := Length(Buffer);
+    FillChar(Buffer, SizeOf(Buffer), 0);
+    if not LaguNETbiQueryProcessImageNameW(
+      ProcessHandle, 0, @Buffer[0], NameLength
+    ) then
+      Exit;
+    OtherExe := UTF8Encode(UnicodeString(PWideChar(@Buffer[0])));
+    Result := SameText(
+      ExpandFileName(OtherExe), ExpandFileName(ParamStr(0))
+    );
+  finally
+    CloseHandle(ProcessHandle);
+  end;
+end;
+
+{ La tarea de inicio automatico puede seguir apuntando al EXE original.
+  La consultamos (sin modificarla) y solo la lanzamos si coincide con
+  esta copia. Si no es consultable, iniciamos esta copia normalmente. }
+function LaguNETbiTaskTargetsThisExe: Boolean;
+var
+  InitResult: HRESULT;
+  Service, Folder, Task, Actions, Action: OleVariant;
+  TaskExe: String;
+  FolderPath: WideString;
+begin
+  Result := False;
+  InitResult := CoInitialize(nil);
+  try
+    try
+      Service := CreateOleObject('Schedule.Service');
+      Service.Connect;
+      FolderPath := '\';
+      Folder := Service.GetFolder(FolderPath);
+      Task := Folder.GetTask('LaguNETbi');
+      if not Boolean(Task.Enabled) then
+        Exit;
+      Actions := Task.Definition.Actions;
+      if Integer(Actions.Count) <> 1 then
+        Exit;
+      Action := Actions.Item(1);
+      TaskExe := Trim(VarToStr(Action.Path));
+      if (Length(TaskExe) >= 2) and
+         (TaskExe[1] = '"') and (TaskExe[Length(TaskExe)] = '"') then
+        TaskExe := Copy(TaskExe, 2, Length(TaskExe) - 2);
+      if TaskExe = '' then
+        Exit;
+      Result := SameText(
+        ExpandFileName(TaskExe), ExpandFileName(ParamStr(0))
+      );
+    except
+      { Nunca redirigimos una copia a otra ruta si no podemos verificarla. }
+      Result := False;
+    end;
+  finally
+    { Liberar referencias COM antes de desinicializar el apartamento. }
+    Action := Unassigned;
+    Actions := Unassigned;
+    Task := Unassigned;
+    Folder := Unassigned;
+    Service := Unassigned;
+    if (InitResult = 0) or (InitResult = 1) then
+      CoUninitialize;
+  end;
+end;
+
 function PrepareLaguNETbiStartup: Boolean;
 var
   CaptionW: UnicodeString;
@@ -499,28 +544,22 @@ begin
   CaptionW := UnicodeString('LaguNET bi');
   ExistingWindow := FindWindowW(nil, PWideChar(CaptionW));
 
-  if ExistingWindow <> 0 then
+  { Buscar todas las instancias: pueden existir copias en otras carpetas. }
+  while ExistingWindow <> 0 do
   begin
-    ShowWindow(ExistingWindow, SW_RESTORE);
-    SetForegroundWindow(ExistingWindow);
-    Exit;
+    if LaguNETbiSameExeAsWindow(ExistingWindow) then
+    begin
+      ShowWindow(ExistingWindow, SW_RESTORE);
+      SetForegroundWindow(ExistingWindow);
+      Exit;
+    end;
+    ExistingWindow := FindWindowExW(
+      0, ExistingWindow, nil, PWideChar(CaptionW)
+    );
   end;
 
-  { Si nos lanzo la tarea programada, ya tenemos privilegios. }
-  if LaguNETbiIsElevated then
-  begin
-    Result := True;
-    Exit;
-  end;
-
-  { Doble clic normal: arrancamos la tarea ya autorizada y salimos. }
-  if StartLaguNETbiScheduledTask then
-  begin
-    Result := False;
-    Exit;
-  end;
-
-  { Fallback de lectura/edicion si la tarea no existe. }
+  { Inicio manual independiente de la tarea de Windows: se ejecuta
+    siempre este EXE. La tarea solo se usa al iniciar sesion en Windows. }
   Result := True;
 end;
 

@@ -43,6 +43,8 @@ begin
   Application.MainFormOnTaskbar:=True;
   {$POP}
   Application.Initialize;
+  { El formulario principal existe, pero solo aparece si lo solicita el usuario. }
+  Application.ShowMainForm := False;
   Application.CreateForm(TForm1, Form1);
   Application.Run;
 end.
