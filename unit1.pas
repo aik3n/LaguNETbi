@@ -416,26 +416,33 @@ end;
 
 procedure TPingThread.Execute;
 const
-  PingAttempts = 10;
+  PingLimitMs = 10000;
+  PingIntervalMs = 1000;
 var
-  I: Integer;
+  Attempt, RemainingMs, WaitMs: Integer;
+  StartedAt: DWORD;
   P: TProcess;
   PingExe: String;
 begin
   FReplies := 0;
   FError := '';
+  StartedAt := GetTickCount;
 
   PingExe := IncludeTrailingPathDelimiter(GetEnvironmentVariable('WINDIR')) +
     'System32' + PathDelim + 'PING.EXE';
-
   if not FileExists(PingExe) then
     PingExe := 'ping.exe';
 
-  for I := 1 to PingAttempts do
+  Attempt := 0;
+  while DWORD(GetTickCount - StartedAt) < PingLimitMs do
   begin
-    { Mostramos el intento que esta comenzando. }
-    FAttempt := I;
+    Inc(Attempt);
+    FAttempt := Attempt;
     Synchronize(@SyncProgress);
+
+    RemainingMs := PingLimitMs - Integer(DWORD(GetTickCount - StartedAt));
+    if RemainingMs <= 0 then
+      Break;
 
     P := TProcess.Create(nil);
     try
@@ -443,18 +450,27 @@ begin
       P.Parameters.Add('-n');
       P.Parameters.Add('1');
       P.Parameters.Add('-w');
-      P.Parameters.Add('1000');
+      if RemainingMs < PingIntervalMs then
+        P.Parameters.Add(IntToStr(RemainingMs))
+      else
+        P.Parameters.Add(IntToStr(PingIntervalMs));
       P.Parameters.Add(FTarget);
       P.Options := [poNoConsole];
 
       try
         P.Execute;
-
         while P.Running do
+        begin
+          if DWORD(GetTickCount - StartedAt) >= PingLimitMs then
+          begin
+            P.Terminate(1);
+            Break;
+          end;
           Sleep(20);
+        end;
 
-        { No evaluamos calidad. El primer ping correcto termina la espera. }
-        if P.ExitStatus = 0 then
+        if (DWORD(GetTickCount - StartedAt) < PingLimitMs) and
+           (not P.Running) and (P.ExitStatus = 0) then
         begin
           FReplies := 1;
           Synchronize(@SyncFinished);
@@ -469,13 +485,22 @@ begin
     end;
 
     if FError <> '' then
+      Break;
+
+    { Un nuevo intento cada segundo, sin prolongar el limite global. }
+    while DWORD(GetTickCount - StartedAt) < PingLimitMs do
     begin
-      Synchronize(@SyncFinished);
-      Exit;
+      WaitMs := Attempt * PingIntervalMs -
+        Integer(DWORD(GetTickCount - StartedAt));
+      if WaitMs <= 0 then
+        Break;
+      if WaitMs < 20 then
+        Sleep(WaitMs)
+      else
+        Sleep(20);
     end;
   end;
 
-  { Diez intentos sin ninguna respuesta. }
   Synchronize(@SyncFinished);
 end;
 
