@@ -224,6 +224,7 @@ FDraggedNode: TTreeNode;
       const AConfig: TNetworkConfig
     ): TConfigurationValidation;
     function ValidateConfiguration: Boolean;
+    function DhcpAlreadyConfigured: Boolean;
     function ExecuteIPv4Configuration(
       const AConfig: TNetworkConfig;
       out AError: String
@@ -279,7 +280,7 @@ var
 implementation
 
 uses
-  uWindowsSupport, uSettingsForm;
+  uWindowsSupport, uSettingsForm, uPersistentIPv4;
 
 {$R *.lfm}
 
@@ -440,9 +441,37 @@ var
   SEI: TShellExecuteInfoW;
   VerbW, FileW, DirW: UnicodeString;
   LastErr: DWORD;
+  Lines: TStringList;
+  I: Integer;
+  HasPause: Boolean;
 begin
   FExitCode := 0;
   FError := '';
+
+  { La consola solo se muestra si el BAT espera entrada del usuario. }
+  HasPause := False;
+  Lines := TStringList.Create;
+  try
+    try
+      Lines.LoadFromFile(FFileName);
+      for I := 0 to Lines.Count - 1 do
+        if SameText(Trim(Lines[I]), 'pause') or
+           SameText(Trim(Lines[I]), '@pause') then
+        begin
+          HasPause := True;
+          Break;
+        end;
+    except
+      on E: Exception do
+      begin
+        FError := 'No se pudo leer el BAT: ' + E.Message;
+        Synchronize(@SyncFinished);
+        Exit;
+      end;
+    end;
+  finally
+    Lines.Free;
+  end;
 
   FileW := UnicodeString(FFileName);
   DirW := UnicodeString(ExtractFileDir(FFileName));
@@ -458,7 +487,10 @@ begin
   SEI.lpVerb := PWideChar(VerbW);
   SEI.lpFile := PWideChar(FileW);
   SEI.lpDirectory := PWideChar(DirW);
-  SEI.nShow := SW_SHOWNORMAL;
+  if HasPause then
+    SEI.nShow := SW_SHOWNORMAL
+  else
+    SEI.nShow := SW_HIDE;
 
   if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
   begin
@@ -1626,6 +1658,8 @@ var
   Unicast: PLaguUnicastAddress;
   Gateway: PLaguGatewayAddress;
   IPValue, MaskValue, GatewayValue, Candidate: String;
+  SavedIP, SavedGateway, PersistentError: String;
+  SavedPrefix: Integer;
   DhcpEnabled, Connected: Boolean;
   Attempt: Integer;
 begin
@@ -1734,13 +1768,33 @@ begin
         end;
       end;
 
+      { El estado activo puede ser DHCP y, al mismo tiempo, Windows
+        conservar una IP manual en PersistentStore (propiedades IPv4).
+        En ese caso mostramos la configuracion guardada. }
+      if not ReadPersistentIPv4(AdapterInfo^.IfIndex,
+        SavedIP, SavedPrefix, SavedGateway, PersistentError) then
+      begin
+        AStatus := PersistentError;
+        Exit;
+      end;
+      if SavedIP <> '' then
+      begin
+        DhcpEnabled := False;
+        IPValue := SavedIP;
+        MaskValue := LaguNETbiPrefixToMask(Byte(SavedPrefix));
+        GatewayValue := SavedGateway;
+      end;
+
       { No alteramos los campos si la consulta no ha tenido exito. }
       AutomaticBox.Checked := DhcpEnabled;
       AddressEdit.Text := IPValue;
       MaskEdit.Text := MaskValue;
       GatewayEdit.Text := GatewayValue;
 
-      AStatus := 'IPv4 leida de ' + AdapterCommandName;
+      if SavedIP <> '' then
+        AStatus := 'IPv4 guardada de ' + AdapterCommandName
+      else
+        AStatus := 'IPv4 leida de ' + AdapterCommandName;
       if not Connected then
         AStatus := AStatus + ' (adaptador desconectado)'
       else if (IPValue = '') and DhcpEnabled then
@@ -3144,9 +3198,9 @@ begin
 
   if WifiBox.Enabled and WifiBox.Checked then
     WifiLine :=
-      'netsh wlan connect name ="' +
+      'netsh wlan connect name="' +
       Trim(WifiCombo.Text) +
-      '" ssid ="' +
+      '" ssid="' +
       Trim(WifiCombo.Text) +
       '"'
   else
@@ -3219,6 +3273,72 @@ begin
   UpdateValidationUI;
   StatusLabel.Caption := 'Guardado: ' + ExtractFileName(TargetPath);
 end;
+function TForm1.DhcpAlreadyConfigured: Boolean;
+const
+  IP_ADAPTER_DHCP_ENABLED_LAGUNET = $0004;
+var
+  Buffer: Pointer;
+  BufferSize, QueryResult: DWORD;
+  P: PIPAdapterAddressesPartial;
+  TargetGuid, CurrentGuid: String;
+  SavedIP, SavedGateway, ReadError: String;
+  SavedPrefix: Integer;
+  I: Integer;
+begin
+  Result := False;
+
+  { Un DHCP activo no basta: Windows puede conservar una IP manual
+    distinta en PersistentStore. Solo omitimos netsh si ambas lecturas
+    concuerdan con la solicitud. }
+  I := Adapter.ItemIndex;
+  if (not Assigned(FAdapterGuids)) or (I < 0) or
+     (I >= FAdapterGuids.Count) then
+    Exit;
+  TargetGuid := NormalizeAdapterId(FAdapterGuids[I]);
+  if TargetGuid = '' then
+    Exit;
+
+  BufferSize := 0;
+  QueryResult := GetAdaptersAddresses(
+    AF_UNSPEC_LAGUNET, 0, nil, nil, BufferSize
+  );
+  if (QueryResult <> ERROR_BUFFER_OVERFLOW_LAGUNET) or
+     (BufferSize = 0) then
+    Exit;
+
+  GetMem(Buffer, BufferSize);
+  try
+    FillChar(Buffer^, BufferSize, 0);
+    QueryResult := GetAdaptersAddresses(
+      AF_UNSPEC_LAGUNET, 0, nil,
+      PIPAdapterAddressesPartial(Buffer), BufferSize
+    );
+    if QueryResult <> NO_ERROR_LAGUNET then
+      Exit;
+
+    P := PIPAdapterAddressesPartial(Buffer);
+    while Assigned(P) do
+    begin
+      if Assigned(P^.AdapterName) then
+        CurrentGuid := NormalizeAdapterId(String(P^.AdapterName))
+      else
+        CurrentGuid := '';
+      if SameText(CurrentGuid, TargetGuid) then
+      begin
+        if ((P^.Flags and IP_ADAPTER_DHCP_ENABLED_LAGUNET) <> 0) and
+           (P^.IfIndex <> 0) and
+           ReadPersistentIPv4(P^.IfIndex, SavedIP, SavedPrefix,
+             SavedGateway, ReadError) then
+          Result := SavedIP = '';
+        Exit;
+      end;
+      P := P^.Next;
+    end;
+  finally
+    FreeMem(Buffer);
+  end;
+end;
+
 function TForm1.ExecuteIPv4Configuration(
   const AConfig: TNetworkConfig;
   out AError: String
@@ -3229,10 +3349,6 @@ var
   NetshPath: String;
   NetshOutput, LowerOutput, CommandText: String;
   ExitCode: LongInt;
-  AdapterIndex: Integer;
-  AdapterId, DhcpKeyPath: String;
-  DhcpKey: HKEY;
-  EnableDhcpValue, DhcpDataType, DhcpDataSize: DWORD;
 begin
   Result := False;
   AError := '';
@@ -3242,63 +3358,12 @@ begin
     AError := 'No hay un adaptador de red seleccionado.';
     Exit;
   end;
-  { Pedir DHCP cuando ya esta habilitado es una operacion correcta.
-    netsh puede devolver codigo 1 con "DHCP ya esta habilitado". }
-  if AConfig.UseDhcp then
+  { DHCP solo esta ya aplicado cuando el estado activo y el guardado
+    concuerdan. No ocultamos una IPv4 manual persistente. }
+  if AConfig.UseDhcp and DhcpAlreadyConfigured then
   begin
-    AdapterIndex := Adapter.ItemIndex;
-
-    if Assigned(FAdapterGuids) and
-       (AdapterIndex >= 0) and
-       (AdapterIndex < FAdapterGuids.Count) then
-    begin
-      AdapterId := Trim(FAdapterGuids[AdapterIndex]);
-
-      if AdapterId <> '' then
-      begin
-        if AdapterId[1] <> '{' then
-          AdapterId := '{' + AdapterId;
-        if AdapterId[Length(AdapterId)] <> '}' then
-          AdapterId := AdapterId + '}';
-
-        DhcpKeyPath :=
-          'SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' +
-          AdapterId;
-
-        DhcpKey := 0;
-        if RegOpenKeyExA(
-          HKEY_LOCAL_MACHINE,
-          PAnsiChar(AnsiString(DhcpKeyPath)),
-          0,
-          KEY_READ,
-          DhcpKey
-        ) = ERROR_SUCCESS then
-        begin
-          try
-            EnableDhcpValue := 0;
-            DhcpDataType := 0;
-            DhcpDataSize := SizeOf(EnableDhcpValue);
-
-            if (RegQueryValueExA(
-              DhcpKey,
-              'EnableDHCP',
-              nil,
-              @DhcpDataType,
-              PByte(@EnableDhcpValue),
-              @DhcpDataSize
-            ) = ERROR_SUCCESS) and
-               (DhcpDataType = REG_DWORD) and
-               (EnableDhcpValue <> 0) then
-            begin
-              Result := True;
-              Exit;
-            end;
-          finally
-            RegCloseKey(DhcpKey);
-          end;
-        end;
-      end;
-    end;
+    Result := True;
+    Exit;
   end;
 
   Args := TStringList.Create;
@@ -3347,6 +3412,14 @@ begin
     if not LaguNETbiIsElevated then
     begin
       Result := LaguNETbiRunElevatedNetsh(Args, AError);
+
+      { netsh puede devolver 1 si DHCP ya estaba habilitado. Solo lo
+        aceptamos si, despues del intento, no queda IPv4 manual guardada. }
+      if (not Result) and AConfig.UseDhcp and DhcpAlreadyConfigured then
+      begin
+        Result := True;
+        AError := '';
+      end;
 
       if not Result then
       begin
@@ -3419,6 +3492,13 @@ begin
 
       if ExitCode <> 0 then
       begin
+        { Un codigo 1 no equivale a fallo si el resultado pedido ya
+          figura tanto en la configuracion activa como en la guardada. }
+        if AConfig.UseDhcp and DhcpAlreadyConfigured then
+        begin
+          Result := True;
+          Exit;
+        end;
         AError :=
           'netsh.exe devolvio el codigo ' +
           IntToStr(ExitCode) + '.';
