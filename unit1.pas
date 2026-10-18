@@ -3722,7 +3722,7 @@ begin
     StatusLabel.Caption := AError;
 
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Error al ejecutar BAT', True);
+      ShowTrayNotification('Error en la operación', True);
 
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.FinishExecution(StatusLabel.Caption);
@@ -3739,6 +3739,10 @@ begin
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.SetIPv4Done;
 
+    { El BAT termino bien; la conectividad se notificara aparte. }
+    if FApplyFromQuickMenu then
+      ShowTrayNotification('Operación completada', False);
+
     StartPingTest(APingTarget);
     Exit;
   end;
@@ -3749,7 +3753,7 @@ begin
     StatusLabel.Caption := 'BAT ejecutado correctamente.';
 
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Configuracion aplicada', False);
+      ShowTrayNotification('Operación completada', False);
   end
   else
   begin
@@ -3758,10 +3762,7 @@ begin
       'BAT finalizado con codigo ' + IntToStr(AExitCode) + '.';
 
     if FApplyFromQuickMenu then
-      ShowTrayNotification(
-        'BAT finalizado con codigo ' + IntToStr(AExitCode),
-        True
-      );
+      ShowTrayNotification('Error en la operación', True);
   end;
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then

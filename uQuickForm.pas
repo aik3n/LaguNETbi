@@ -6,7 +6,7 @@ interface
 
 uses
   Windows, Classes, SysUtils, Forms, Controls, Graphics,
-  StdCtrls, ExtCtrls, ComCtrls;
+  StdCtrls, ExtCtrls, ComCtrls, ImgList, IniFiles;
 
 type
   TQuickScriptExecuteEvent = procedure(const AFileName: String) of object;
@@ -14,6 +14,7 @@ type
   { El formulario y sus controles se editan visualmente en uQuickForm.lfm. }
   TQuickForm = class(TForm)
     TreeScripts: TTreeView;
+    TreeIcons: TImageList;
     StatusText: TLabel;
     QuickProgress: TProgressBar;
     FocusTimer: TTimer;
@@ -25,6 +26,14 @@ type
   private
     FRunning: Boolean;
     FScriptsPath: String;
+    FStoredScrollX: Integer;
+    FStoredScrollY: Integer;
+    function TreeNodeKey(ANode: TTreeNode): String;
+    function TreeStateIniPath: String;
+    procedure SaveTreeState;
+    procedure RestoreTreeState(ARootNode: TTreeNode);
+    procedure RestoreTreeScroll;
+  private
     FOnExecuteScript: TQuickScriptExecuteEvent;
     function SelectedScriptPath: String;
     procedure AddDirectory(const ADirectory: String; AParent: TTreeNode);
@@ -44,11 +53,146 @@ implementation
 
 {$R *.lfm}
 
+type
+  { Acceso a las posiciones reales de scroll del TreeView de Lazarus.
+    No crea controles nuevos ni interviene en su dibujo. }
+  TQuickTreeViewAccess = class(TTreeView)
+  end;
+
+function TQuickForm.TreeNodeKey(ANode: TTreeNode): String;
+begin
+  Result := '';
+  while Assigned(ANode) do
+  begin
+    if Result = '' then
+      Result := ANode.Text
+    else
+      Result := ANode.Text + '/' + Result;
+    ANode := ANode.Parent;
+  end;
+end;
+
+function TQuickForm.TreeStateIniPath: String;
+begin
+  Result := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) +
+    'LaguNETbi.ini';
+end;
+
+procedure TQuickForm.SaveTreeState;
+var
+  Ini: TIniFile;
+  Expanded: TStringList;
+  I: Integer;
+begin
+  if not Assigned(TreeScripts) or (TreeScripts.Items.Count = 0) then
+    Exit;
+
+  { Las posiciones quedan guardadas tambien en memoria para esta sesion. }
+  FStoredScrollX := TQuickTreeViewAccess(TreeScripts).ScrolledLeft;
+  FStoredScrollY := TQuickTreeViewAccess(TreeScripts).ScrolledTop;
+
+  Expanded := TStringList.Create;
+  try
+    for I := 0 to TreeScripts.Items.Count - 1 do
+      if TreeScripts.Items[I].Expanded then
+        Expanded.Add(TreeNodeKey(TreeScripts.Items[I]));
+
+    { El estado del popup es independiente de [ScriptTree] del formulario. }
+    try
+      Ini := TIniFile.Create(TreeStateIniPath);
+      try
+        Ini.EraseSection('TrayPopupTree');
+        Ini.WriteInteger('TrayPopupTree', 'ExpandedCount', Expanded.Count);
+        for I := 0 to Expanded.Count - 1 do
+          Ini.WriteString('TrayPopupTree', 'Expanded' + IntToStr(I), Expanded[I]);
+        Ini.WriteInteger('TrayPopupTree', 'ScrollX', FStoredScrollX);
+        Ini.WriteInteger('TrayPopupTree', 'ScrollY', FStoredScrollY);
+      finally
+        Ini.Free;
+      end;
+    except
+      { La persistencia no debe impedir cerrar el popup si el INI
+        esta protegido o la carpeta temporalmente no es escribible. }
+    end;
+  finally
+    Expanded.Free;
+  end;
+end;
+
+procedure TQuickForm.RestoreTreeState(ARootNode: TTreeNode);
+var
+  Ini: TIniFile;
+  Expanded: TStringList;
+  I, CountSaved: Integer;
+  S: String;
+begin
+  FStoredScrollX := 0;
+  FStoredScrollY := 0;
+  if not Assigned(ARootNode) then
+    Exit;
+
+  if not FileExists(TreeStateIniPath) then
+  begin
+    ARootNode.Expand(True);
+    Exit;
+  end;
+
+  Expanded := TStringList.Create;
+  try
+    Expanded.CaseSensitive := False;
+    try
+      Ini := TIniFile.Create(TreeStateIniPath);
+      try
+        { -1 significa primera ejecucion: conservar el comportamiento anterior. }
+        CountSaved := Ini.ReadInteger('TrayPopupTree', 'ExpandedCount', -1);
+        if CountSaved < 0 then
+        begin
+          ARootNode.Expand(True);
+          Exit;
+        end;
+        if CountSaved > TreeScripts.Items.Count then
+          CountSaved := TreeScripts.Items.Count;
+        for I := 0 to CountSaved - 1 do
+        begin
+          S := Ini.ReadString('TrayPopupTree', 'Expanded' + IntToStr(I), '');
+          if S <> '' then
+            Expanded.Add(S);
+        end;
+        FStoredScrollX := Ini.ReadInteger('TrayPopupTree', 'ScrollX', 0);
+        FStoredScrollY := Ini.ReadInteger('TrayPopupTree', 'ScrollY', 0);
+      finally
+        Ini.Free;
+      end;
+    except
+      ARootNode.Expand(True);
+      Exit;
+    end;
+
+    { Nodos padres antes que hijos: se restaura el estado de cada carpeta,
+      incluso si uno de sus antecesores sigue colapsado. }
+    for I := 0 to TreeScripts.Items.Count - 1 do
+      if Expanded.IndexOf(TreeNodeKey(TreeScripts.Items[I])) >= 0 then
+        TreeScripts.Items[I].Expand(False);
+  finally
+    Expanded.Free;
+  end;
+end;
+
+procedure TQuickForm.RestoreTreeScroll;
+begin
+  if not Assigned(TreeScripts) or not TreeScripts.HandleAllocated then
+    Exit;
+  { Lazarus limita automaticamente los valores al rango visible actual. }
+  TQuickTreeViewAccess(TreeScripts).ScrolledTop := FStoredScrollY;
+  TQuickTreeViewAccess(TreeScripts).ScrolledLeft := FStoredScrollX;
+end;
+
 procedure TQuickForm.PopupDeactivate(Sender: TObject);
 begin
   if Assigned(FocusTimer) then
     FocusTimer.Enabled := False;
 
+  SaveTreeState;
   Hide;
 end;
 procedure TQuickForm.FocusTimerTick(Sender: TObject);
@@ -64,6 +208,7 @@ begin
   if GetForegroundWindow <> Handle then
   begin
     FocusTimer.Enabled := False;
+    SaveTreeState;
     Hide;
   end;
 end;
@@ -87,10 +232,16 @@ begin
       if (SR.Attr and faDirectory) <> 0 then
       begin
         Node := TreeScripts.Items.AddChild(AParent, SR.Name);
+        Node.ImageIndex := 0;
+        Node.SelectedIndex := 0;
         AddDirectory(FullName, Node);
       end
       else if SameText(ExtractFileExt(SR.Name), '.bat') then
-        TreeScripts.Items.AddChild(AParent, SR.Name);
+      begin
+        Node := TreeScripts.Items.AddChild(AParent, SR.Name);
+        Node.ImageIndex := 1;
+        Node.SelectedIndex := 1;
+      end;
     until FindNext(SR) <> 0;
   finally
     FindClose(SR);
@@ -103,21 +254,28 @@ var
 begin
   if FRunning then
     Exit;
+  { Si se reconstruye con el popup visible, conservar el estado actual. }
+  if Visible and (TreeScripts.Items.Count > 0) then
+    SaveTreeState;
   FScriptsPath := ARootPath;
 
   TreeScripts.Items.BeginUpdate;
   try
     TreeScripts.Items.Clear;
     RootNode := TreeScripts.Items.Add(nil, 'scripts');
+    RootNode.ImageIndex := 0;
+    RootNode.SelectedIndex := 0;
     AddDirectory(ARootPath, RootNode);
 
     if RootNode.Count = 0 then
       TreeScripts.Items.AddChild(RootNode, '(sin scripts .bat)');
 
-    RootNode.Expand(True);
+    RestoreTreeState(RootNode);
   finally
     TreeScripts.Items.EndUpdate;
   end;
+  if Visible then
+    RestoreTreeScroll;
 
   StatusText.Caption := '';
   QuickProgress.Visible := False;
@@ -169,6 +327,7 @@ begin
     Exit;
 
   FocusTimer.Enabled := False;
+  SaveTreeState;
   Hide;
   FOnExecuteScript(ScriptPath);
 end;
@@ -227,6 +386,7 @@ begin
   Show;
   BringToFront;
   TreeScripts.SetFocus;
+  RestoreTreeScroll;
 
   FocusTimer.Enabled := True;
 end;
