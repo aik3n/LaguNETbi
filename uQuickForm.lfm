@@ -1,0 +1,67 @@
+object QuickForm: TQuickForm
+  Left = 100
+  Height = 805
+  Top = 100
+  Width = 466
+  BorderStyle = bsNone
+  BorderWidth = 1
+  Caption = 'LaguNET Scripts'
+  ClientHeight = 805
+  ClientWidth = 466
+  Color = clWhite
+  DesignTimePPI = 192
+  Font.Height = -24
+  Font.Name = 'Segoe UI'
+  ShowInTaskBar = stNever
+  LCLVersion = '4.8.0.0'
+  OnDeactivate = PopupDeactivate
+  object QuickProgress: TProgressBar
+    Left = 1
+    Height = 5
+    Top = 799
+    Width = 464
+    Align = alBottom
+    Max = 17
+    TabOrder = 0
+    Visible = False
+  end
+  object StatusText: TLabel
+    Left = 1
+    Height = 25
+    Top = 774
+    Width = 464
+    Align = alBottom
+    Alignment = taCenter
+    AutoSize = False
+    Color = clWhite
+    Layout = tlCenter
+    ParentColor = False
+  end
+  object TreeScripts: TTreeView
+    Left = 1
+    Height = 773
+    Top = 1
+    Width = 464
+    Align = alClient
+    BackgroundColor = clWhite
+    BorderWidth = 1
+    Color = clWhite
+    Font.Height = -32
+    Font.Name = 'Verdana'
+    Indent = 20
+    ParentFont = False
+    ReadOnly = True
+    ScrollBars = ssAutoBoth
+    TabOrder = 1
+    Options = [tvoAutoItemHeight, tvoHideSelection, tvoKeepCollapsedNodes, tvoReadOnly, tvoShowButtons, tvoShowLines, tvoShowRoot, tvoToolTips, tvoThemedDraw]
+    OnDblClick = TreeDblClick
+    OnEditing = TreeEditing
+  end
+  object FocusTimer: TTimer
+    Enabled = False
+    Interval = 100
+    OnTimer = FocusTimerTick
+    Left = 24
+    Top = 24
+  end
+end

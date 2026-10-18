@@ -5,7 +5,7 @@ unit Unit1;
 interface
 
 uses
-  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList, Buttons;
+  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList, Buttons, uQuickForm;
 
 type
 {$PUSH}
@@ -52,28 +52,6 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     ProfileInfo: array[0..0] of TWlanProfileInfo;
   end;
 
-  TQuickForm = class(TForm)
-  private
-    FTree: TTreeView;
-    FStatus: TLabel;
-    FProgress: TProgressBar;
-    FRunning: Boolean;
-    FFocusTimer: TTimer;
-    function SelectedScriptPath: String;
-    procedure PopupDeactivate(Sender: TObject);
-    procedure FocusTimerTick(Sender: TObject);
-    procedure TreeDblClick(Sender: TObject);
-    procedure TreeEditing(Sender: TObject; Node: TTreeNode; var AllowEdit: Boolean);
-    procedure AddDirectory(const ADirectory: String; AParent: TTreeNode);
-  public
-    constructor CreatePopup(AOwner: TComponent);
-    procedure RefreshScripts(const ARootPath: String);
-    procedure BeginExecution(const AName: String; AUsePing: Boolean);
-    procedure SetIPv4Done;
-    procedure SetPingProgress(AAttempt, AReplies: Integer);
-    procedure FinishExecution(const AStatus: String);
-    procedure ShowNearTray;
-  end;
 
 
   TConfigurationValidation = record
@@ -726,251 +704,6 @@ procedure WlanFreeMemory(
 
 
 
-constructor TQuickForm.CreatePopup(AOwner: TComponent);
-begin
-  inherited CreateNew(AOwner, 1);
-
-  Caption := 'LaguNET Scripts';
-  Width := 303;
-  Height := 450;
-  BorderStyle := bsNone;
-  Position := poDesigned;
-  ShowInTaskBar := stNever;
-  Color := clWhite;
-  Font.Name := 'Segoe UI';
-  Font.Size := 9;
-  OnDeactivate := @PopupDeactivate;
-
-  FFocusTimer := TTimer.Create(Self);
-  FFocusTimer.Enabled := False;
-  FFocusTimer.Interval := 100;
-  FFocusTimer.OnTimer := @FocusTimerTick;
-  FProgress := TProgressBar.Create(Self);
-  FProgress.Parent := Self;
-  FProgress.Align := alBottom;
-  FProgress.Height := 5;
-  FProgress.Min := 0;
-  FProgress.Max := 17;
-  FProgress.Position := 0;
-  FProgress.Visible := False;
-  FRunning := False;
-
-  FStatus := TLabel.Create(Self);
-  FStatus.Parent := Self;
-  FStatus.Align := alBottom;
-  FStatus.Height := 25;
-  FStatus.Alignment := taCenter;
-  FStatus.Layout := tlCenter;
-  FStatus.Caption := '';
-  FStatus.Color := clWhite;
-  FStatus.ParentColor := False;
-
-  FTree := TTreeView.Create(Self);
-  FTree.Parent := Self;
-  FTree.Align := alClient;
-  FTree.BorderStyle := bsNone;
-  FTree.Color := clWhite;
-  FTree.ReadOnly := True;
-  FTree.Font.Name := 'Verdana';
-  FTree.Font.Size := 12;
-  FTree.Indent := 20;
-  FTree.OnEditing := @TreeEditing;
-  FTree.OnDblClick := @TreeDblClick;
-end;
-
-procedure TQuickForm.PopupDeactivate(Sender: TObject);
-begin
-  if Assigned(FFocusTimer) then
-    FFocusTimer.Enabled := False;
-
-  Hide;
-end;
-procedure TQuickForm.FocusTimerTick(Sender: TObject);
-begin
-  if not Visible then
-  begin
-    FFocusTimer.Enabled := False;
-    Exit;
-  end;
-
-  { GetForegroundWindow devuelve la ventana superior que tiene
-    realmente el foco en Windows. Si ya no somos nosotros, cerramos. }
-  if GetForegroundWindow <> Handle then
-  begin
-    FFocusTimer.Enabled := False;
-    Hide;
-  end;
-end;
-
-procedure TQuickForm.AddDirectory(const ADirectory: String; AParent: TTreeNode);
-var
-  SR: TSearchRec;
-  Node: TTreeNode;
-  FullName: String;
-begin
-  if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*', faAnyFile, SR) <> 0 then
-    Exit;
-
-  try
-    repeat
-      if (SR.Name = '.') or (SR.Name = '..') then
-        Continue;
-
-      FullName := IncludeTrailingPathDelimiter(ADirectory) + SR.Name;
-
-      if (SR.Attr and faDirectory) <> 0 then
-      begin
-        Node := FTree.Items.AddChild(AParent, SR.Name);
-        AddDirectory(FullName, Node);
-      end
-      else if SameText(ExtractFileExt(SR.Name), '.bat') then
-        FTree.Items.AddChild(AParent, SR.Name);
-    until FindNext(SR) <> 0;
-  finally
-    FindClose(SR);
-  end;
-end;
-
-procedure TQuickForm.RefreshScripts(const ARootPath: String);
-var
-  RootNode: TTreeNode;
-begin
-  if FRunning then
-    Exit;
-
-  FTree.Items.BeginUpdate;
-  try
-    FTree.Items.Clear;
-    RootNode := FTree.Items.Add(nil, 'scripts');
-    AddDirectory(ARootPath, RootNode);
-
-    if RootNode.Count = 0 then
-      FTree.Items.AddChild(RootNode, '(sin scripts .bat)');
-
-    RootNode.Expand(True);
-  finally
-    FTree.Items.EndUpdate;
-  end;
-
-  FStatus.Caption := '';
-  FProgress.Visible := False;
-end;
-
-procedure TQuickForm.TreeEditing(Sender: TObject; Node: TTreeNode;
-  var AllowEdit: Boolean);
-begin
-  AllowEdit := False;
-end;
-
-function TQuickForm.SelectedScriptPath: String;
-var
-  Node, Cur: TTreeNode;
-  RelativePath: String;
-  MainForm: TForm1;
-begin
-  Result := '';
-
-  if not (Owner is TForm1) then
-    Exit;
-
-  Node := FTree.Selected;
-  if not Assigned(Node) then
-    Exit;
-
-  if not SameText(ExtractFileExt(Node.Text), '.bat') then
-    Exit;
-
-  RelativePath := Node.Text;
-  Cur := Node.Parent;
-
-  { El nodo raiz se llama "scripts", pero FScriptsPath ya apunta a esa
-    carpeta, asi que no lo duplicamos. }
-  while Assigned(Cur) and Assigned(Cur.Parent) do
-  begin
-    RelativePath := Cur.Text + PathDelim + RelativePath;
-    Cur := Cur.Parent;
-  end;
-
-  MainForm := TForm1(Owner);
-  Result := IncludeTrailingPathDelimiter(MainForm.FScriptsPath) + RelativePath;
-end;
-
-procedure TQuickForm.TreeDblClick(Sender: TObject);
-var
-  ScriptPath: String;
-begin
-  if (Owner is TForm1) and Assigned(TForm1(Owner).FBatchThread) then
-    Exit;
-
-  ScriptPath := SelectedScriptPath;
-  if (ScriptPath = '') or not FileExists(ScriptPath) then
-    Exit;
-
-  if Owner is TForm1 then
-  begin
-    FFocusTimer.Enabled := False;
-    Hide;
-    TForm1(Owner).ExecuteScriptFromQuickMenu(ScriptPath);
-  end;
-end;
-procedure TQuickForm.BeginExecution(const AName: String; AUsePing: Boolean);
-begin
-  FRunning := True;
-  { El arbol sigue disponible mientras un ping comprueba el destino. }
-  FTree.Enabled := True;
-
-  FProgress.Min := 0;
-  if AUsePing then
-    FProgress.Max := TForm1(Owner).PingTimeoutSeconds + 1
-  else
-    FProgress.Max := 1;
-
-  FProgress.Position := 0;
-  FProgress.Visible := True;
-  FStatus.Caption := 'Aplicando: ' + AName;
-  FStatus.Visible := True;
-end;
-
-procedure TQuickForm.SetIPv4Done;
-begin
-  FProgress.Position := 1;
-
-  if FProgress.Max > 1 then
-    FStatus.Caption := 'BAT finalizado - comprobando equipo...';
-end;
-
-procedure TQuickForm.SetPingProgress(AAttempt, AReplies: Integer);
-begin
-  FProgress.Position := 1 + AAttempt;
-  FStatus.Caption := Format(
-    'Comprobando equipo... intento %d',
-    [AAttempt]
-  );
-end;
-procedure TQuickForm.FinishExecution(const AStatus: String);
-begin
-  FProgress.Position := 0;
-  FProgress.Visible := False;
-  FStatus.Caption := AStatus;
-  FStatus.Visible := True;
-  FTree.Enabled := True;
-  FRunning := False;
-end;
-procedure TQuickForm.ShowNearTray;
-var
-  R: TRect;
-begin
-  R := Screen.WorkAreaRect;
-  Left := R.Right - Width;
-  Top := R.Bottom - Height;
-
-  Show;
-  BringToFront;
-  FTree.SetFocus;
-
-  FFocusTimer.Enabled := True;
-end;
-
 procedure TForm1.FormCreate(Sender: TObject);
 var
   LogoPath: String;
@@ -1050,7 +783,8 @@ begin
   FDescriptionPaths.CaseSensitive := False;
   FDescriptionTexts := TStringList.Create;
 
-  FQuickForm := TQuickForm.CreatePopup(Self);
+  FQuickForm := TQuickForm.Create(Self);
+  FQuickForm.OnExecuteScript := @ExecuteScriptFromQuickMenu;
   FQuickForm.RefreshScripts(FScriptsPath);
 
   NameEdit.Enabled := False;
@@ -4077,7 +3811,8 @@ begin
   if Assigned(FQuickForm) then
     FQuickForm.BeginExecution(
       ExtractFileName(AFileName),
-      UsePing
+      UsePing,
+      PingTimeoutSeconds
     );
 
   StatusLabel.Font.Color := TColor(7760478);
