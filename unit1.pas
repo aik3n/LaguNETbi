@@ -8,6 +8,8 @@ uses
   Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList, Buttons;
 
 type
+{$PUSH}
+{$PACKRECORDS C}
 PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
   TIPAdapterAddressesPartial = record
     Length: DWORD;
@@ -26,7 +28,16 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     Flags: DWORD;
     Mtu: DWORD;
     IfType: DWORD;
+    OperStatus: DWORD;
+    Ipv6IfIndex: DWORD;
+    ZoneIndices: array[0..15] of DWORD;
+    FirstPrefix: Pointer;
+    TransmitLinkSpeed: QWord;
+    ReceiveLinkSpeed: QWord;
+    FirstWinsServerAddress: Pointer;
+    FirstGatewayAddress: Pointer;
   end;
+{$POP}
 
   PWlanProfileInfo = ^TWlanProfileInfo;
   TWlanProfileInfo = record
@@ -192,7 +203,7 @@ FDraggedNode: TTreeNode;
       Description: String): Boolean;
     function SelectedAdapterGuid(out AGuid: TGUID): Boolean;
     function NormalizeAdapterId(const S: String): String;
-    function LoadCurrentAdapterConfiguration: Boolean;
+    function LoadCurrentAdapterConfiguration(out AStatus: String): Boolean;
     procedure LoadKnownWifiProfiles(APreserveCurrent: Boolean);
     function ReadScriptDescription(const AFileName: String): String;
     function CachedScriptDescription(const AFileName: String): String;
@@ -310,6 +321,91 @@ type
     );
   end;
 
+
+{$PUSH}
+{$PACKRECORDS C}
+type
+  { Estructuras de IP Helper. SOCKADDR_INET incluye familia y 4 octetos.
+    Se mantienen separadas de la interfaz visual y de netsh. }
+  PLaguSocketIPv4 = ^TLaguSocketIPv4;
+  TLaguSocketIPv4 = record
+    Family: Word;
+    Port: Word;
+    Octets: array[0..3] of Byte;
+    Padding: array[0..7] of Byte;
+  end;
+
+  TLaguSocketAddress = record
+    Sockaddr: Pointer;
+    Length: Integer;
+  end;
+
+  PLaguUnicastAddress = ^TLaguUnicastAddress;
+  TLaguUnicastAddress = record
+    Length: DWORD;
+    Flags: DWORD;
+    Next: PLaguUnicastAddress;
+    Address: TLaguSocketAddress;
+    PrefixOrigin: DWORD;
+    SuffixOrigin: DWORD;
+    DadState: DWORD;
+    ValidLifetime: DWORD;
+    PreferredLifetime: DWORD;
+    LeaseLifetime: DWORD;
+    OnLinkPrefixLength: Byte;
+  end;
+
+  PLaguGatewayAddress = ^TLaguGatewayAddress;
+  TLaguGatewayAddress = record
+    Length: DWORD;
+    Reserved: DWORD;
+    Next: PLaguGatewayAddress;
+    Address: TLaguSocketAddress;
+  end;
+{$POP}
+
+function LaguNETbiIPv4FromSocket(const A: TLaguSocketAddress): String;
+var
+  P: PLaguSocketIPv4;
+begin
+  Result := '';
+  if (A.Sockaddr = nil) or (A.Length < SizeOf(TLaguSocketIPv4)) then
+    Exit;
+  P := PLaguSocketIPv4(A.Sockaddr);
+  if P^.Family <> 2 then  { AF_INET }
+    Exit;
+  Result := Format('%d.%d.%d.%d', [
+    P^.Octets[0], P^.Octets[1], P^.Octets[2], P^.Octets[3]
+  ]);
+end;
+
+function LaguNETbiPrefixToMask(APrefix: Byte): String;
+var
+  I, Bits, Octet: Integer;
+begin
+  Result := '';
+  if APrefix > 32 then
+    Exit;
+  Bits := APrefix;
+  for I := 0 to 3 do
+  begin
+    if Bits >= 8 then
+    begin
+      Octet := 255;
+      Dec(Bits, 8);
+    end
+    else if Bits > 0 then
+    begin
+      Octet := 256 - (1 shl (8 - Bits));
+      Bits := 0;
+    end
+    else
+      Octet := 0;
+    if I > 0 then
+      Result := Result + '.';
+    Result := Result + IntToStr(Octet);
+  end;
+end;
 
 constructor TBatchThread.Create(
   AOwner: TForm1;
@@ -1515,163 +1611,168 @@ begin
   Result := StringReplace(Result, '}', '', [rfReplaceAll]);
 end;
 
-function TForm1.LoadCurrentAdapterConfiguration: Boolean;
-  { Leemos la configuracion TCP/IP persistida por Windows para que
-    tambien funcione con adaptadores desconectados. }
-
-  function ReadRegDword(AKey: HKEY; const AName: AnsiString;
-    out AValue: DWORD): Boolean;
-  var
-    DataType, DataSize: DWORD;
-  begin
-    AValue := 0;
-    DataType := 0;
-    DataSize := SizeOf(AValue);
-
-    Result :=
-      (RegQueryValueExA(
-        AKey, PAnsiChar(AName), nil, @DataType,
-        PByte(@AValue), @DataSize
-      ) = ERROR_SUCCESS) and
-      (DataType = REG_DWORD);
-  end;
-
-  function ReadRegFirstText(AKey: HKEY;
-    const AName: AnsiString): String;
-  var
-    DataType, DataSize: DWORD;
-    Buffer: PAnsiChar;
-  begin
-    Result := '';
-    DataType := 0;
-    DataSize := 0;
-
-    if RegQueryValueExA(
-      AKey, PAnsiChar(AName), nil, @DataType, nil, @DataSize
-    ) <> ERROR_SUCCESS then
-      Exit;
-
-    if not (DataType in [REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ]) then
-      Exit;
-
-    if DataSize = 0 then
-      Exit;
-
-    GetMem(Buffer, DataSize + 2);
-    try
-      FillChar(Buffer^, DataSize + 2, 0);
-
-      if RegQueryValueExA(
-        AKey, PAnsiChar(AName), nil, @DataType,
-        PByte(Buffer), @DataSize
-      ) = ERROR_SUCCESS then
-        Result := Trim(String(AnsiString(Buffer)));
-    finally
-      FreeMem(Buffer);
-    end;
-  end;
-
-  function CleanIPv4Value(const S: String): String;
-  begin
-    Result := Trim(S);
-    if Result = '0.0.0.0' then
-      Result := '';
-  end;
-
+function TForm1.LoadCurrentAdapterConfiguration(out AStatus: String): Boolean;
+const
+  AF_INET_LAGUNET = 2;
+  GAA_FLAG_INCLUDE_GATEWAYS_LAGUNET = $0080;
+  IP_ADAPTER_DHCP_ENABLED_LAGUNET = $0004;
+  IF_OPER_STATUS_UP_LAGUNET = 1;
 var
-  I: Integer;
-  AdapterId, KeyPath: String;
-  KeyPathA: AnsiString;
-  Key: HKEY;
-  EnableDhcp: DWORD;
-  Dhcp: Boolean;
-  IpValue, MaskValue, GatewayValue: String;
+  Index: Integer;
+  TargetId, AdapterId: String;
+  Buffer: Pointer;
+  BufferSize, QueryResult: DWORD;
+  AdapterInfo: PIPAdapterAddressesPartial;
+  Unicast: PLaguUnicastAddress;
+  Gateway: PLaguGatewayAddress;
+  IPValue, MaskValue, GatewayValue, Candidate: String;
+  DhcpEnabled, Connected: Boolean;
+  Attempt: Integer;
 begin
   Result := False;
+  AStatus := 'No se pudo consultar la configuracion IPv4.';
 
-  if not Assigned(FAdapterGuids) then
+  Index := Adapter.ItemIndex;
+  if not Assigned(FAdapterGuids) or (Index < 0) or
+     (Index >= FAdapterGuids.Count) then
+  begin
+    AStatus := 'Selecciona un adaptador valido.';
     Exit;
-
-  I := Adapter.ItemIndex;
-  if (I < 0) or (I >= FAdapterGuids.Count) then
-    Exit;
-
-  AdapterId := Trim(FAdapterGuids[I]);
-  if AdapterId = '' then
-    Exit;
-
-  { En GetAdaptersAddresses suele venir como {GUID}, pero aceptamos
-    tambien el GUID sin llaves. }
-  if AdapterId[1] <> '{' then
-    AdapterId := '{' + AdapterId;
-  if AdapterId[Length(AdapterId)] <> '}' then
-    AdapterId := AdapterId + '}';
-
-  KeyPath :=
-    'SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\' +
-    AdapterId;
-  KeyPathA := AnsiString(KeyPath);
-
-  Key := 0;
-  if RegOpenKeyExA(
-    HKEY_LOCAL_MACHINE, PAnsiChar(KeyPathA), 0, KEY_READ, Key
-  ) <> ERROR_SUCCESS then
-    Exit;
-
-  try
-    EnableDhcp := 0;
-    if not ReadRegDword(Key, 'EnableDHCP', EnableDhcp) then
-      Exit;
-
-    Dhcp := EnableDhcp <> 0;
-
-    if Dhcp then
-    begin
-      IpValue := ReadRegFirstText(Key, 'DhcpIPAddress');
-      MaskValue := ReadRegFirstText(Key, 'DhcpSubnetMask');
-      GatewayValue := ReadRegFirstText(Key, 'DhcpDefaultGateway');
-
-      { Algunos equipos no conservan gateway DHCP en ese valor.
-        Si no existe, no inventamos nada. }
-    end
-    else
-    begin
-      IpValue := ReadRegFirstText(Key, 'IPAddress');
-      MaskValue := ReadRegFirstText(Key, 'SubnetMask');
-      GatewayValue := ReadRegFirstText(Key, 'DefaultGateway');
-    end;
-
-    IpValue := CleanIPv4Value(IpValue);
-    MaskValue := CleanIPv4Value(MaskValue);
-    GatewayValue := CleanIPv4Value(GatewayValue);
-
-    { Solo ahora, tras una lectura valida del adaptador exacto,
-      tocamos la configuracion que el usuario esta editando. }
-    AutomaticBox.Checked := Dhcp;
-    AddressEdit.Text := IpValue;
-    MaskEdit.Text := MaskValue;
-    GatewayEdit.Text := GatewayValue;
-
-    Result := True;
-  finally
-    RegCloseKey(Key);
   end;
+  TargetId := NormalizeAdapterId(FAdapterGuids[Index]);
+  if TargetId = '' then
+  begin
+    AStatus := 'El adaptador seleccionado no tiene identificador.';
+    Exit;
+  end;
+
+  { Misma API usada para enumerar adaptadores, consultada de nuevo al pulsar. }
+  Buffer := nil;
+  BufferSize := 0;
+  QueryResult := GetAdaptersAddresses(
+    AF_INET_LAGUNET, GAA_FLAG_INCLUDE_GATEWAYS_LAGUNET,
+    nil, nil, BufferSize
+  );
+  if (QueryResult <> ERROR_BUFFER_OVERFLOW_LAGUNET) or (BufferSize = 0) then
+  begin
+    AStatus := 'Windows no devolvio informacion IPv4 del adaptador.';
+    Exit;
+  end;
+
+  { Un segundo intento cubre cambios simultaneos en los adaptadores. }
+  for Attempt := 1 to 2 do
+  begin
+    GetMem(Buffer, BufferSize);
+    try
+      FillChar(Buffer^, BufferSize, 0);
+      QueryResult := GetAdaptersAddresses(
+        AF_INET_LAGUNET, GAA_FLAG_INCLUDE_GATEWAYS_LAGUNET, nil,
+        PIPAdapterAddressesPartial(Buffer), BufferSize
+      );
+      if QueryResult = ERROR_BUFFER_OVERFLOW_LAGUNET then
+        Continue;
+      if QueryResult <> NO_ERROR_LAGUNET then
+      begin
+        AStatus := 'Windows no pudo obtener la configuracion IPv4.';
+        Exit;
+      end;
+
+      AdapterInfo := PIPAdapterAddressesPartial(Buffer);
+      while Assigned(AdapterInfo) do
+      begin
+        if Assigned(AdapterInfo^.AdapterName) then
+          AdapterId := NormalizeAdapterId(String(AdapterInfo^.AdapterName))
+        else
+          AdapterId := '';
+        if SameText(AdapterId, TargetId) then
+          Break;
+        AdapterInfo := AdapterInfo^.Next;
+      end;
+      if not Assigned(AdapterInfo) then
+      begin
+        AStatus := 'No se encontro IPv4 en el adaptador seleccionado.';
+        Exit;
+      end;
+
+      DhcpEnabled := (AdapterInfo^.Flags and
+        IP_ADAPTER_DHCP_ENABLED_LAGUNET) <> 0;
+      Connected := AdapterInfo^.OperStatus = IF_OPER_STATUS_UP_LAGUNET;
+      IPValue := '';
+      MaskValue := '';
+      GatewayValue := '';
+
+      { En DHCP sin enlace, una direccion concedida anteriormente no es
+        una direccion operativa. En IP estatica conservamos lo configurado. }
+      if Connected or (not DhcpEnabled) then
+      begin
+        Unicast := PLaguUnicastAddress(AdapterInfo^.FirstUnicastAddress);
+        while Assigned(Unicast) do
+        begin
+          Candidate := LaguNETbiIPv4FromSocket(Unicast^.Address);
+          if (Candidate <> '') and (Candidate <> '0.0.0.0') and
+             (Unicast^.OnLinkPrefixLength <= 32) then
+          begin
+            IPValue := Candidate;
+            MaskValue := LaguNETbiPrefixToMask(
+              Unicast^.OnLinkPrefixLength
+            );
+            Break;
+          end;
+          Unicast := Unicast^.Next;
+        end;
+
+        Gateway := PLaguGatewayAddress(AdapterInfo^.FirstGatewayAddress);
+        while Assigned(Gateway) do
+        begin
+          Candidate := LaguNETbiIPv4FromSocket(Gateway^.Address);
+          if (Candidate <> '') and (Candidate <> '0.0.0.0') then
+          begin
+            GatewayValue := Candidate;
+            Break;
+          end;
+          Gateway := Gateway^.Next;
+        end;
+      end;
+
+      { No alteramos los campos si la consulta no ha tenido exito. }
+      AutomaticBox.Checked := DhcpEnabled;
+      AddressEdit.Text := IPValue;
+      MaskEdit.Text := MaskValue;
+      GatewayEdit.Text := GatewayValue;
+
+      AStatus := 'IPv4 leida de ' + AdapterCommandName;
+      if not Connected then
+        AStatus := AStatus + ' (adaptador desconectado)'
+      else if (IPValue = '') and DhcpEnabled then
+        AStatus := AStatus + ' (DHCP sin direccion asignada)'
+      else if IPValue = '' then
+        AStatus := AStatus + ' (sin direccion IPv4)';
+      Result := True;
+      Exit;
+    finally
+      FreeMem(Buffer);
+      Buffer := nil;
+    end;
+  end;
+  AStatus := 'La lista de adaptadores cambio durante la lectura.';
 end;
 
 procedure TForm1.ReadCurrentConfiguration(Sender: TObject);
+var
+  ReadStatus: String;
 begin
-  if LoadCurrentAdapterConfiguration then
+  if LoadCurrentAdapterConfiguration(ReadStatus) then
   begin
     ToggleAutomatic(nil);
     UpdateValidationUI;
-    StatusLabel.Caption := 'Configuracion leida de ' + AdapterCommandName;
+    StatusLabel.Font.Color := TColor(7760478);
   end
   else
   begin
     UpdateValidationUI;
-    StatusLabel.Caption := 'No se pudo leer la configuracion de ' +
-      AdapterCommandName;
+    StatusLabel.Font.Color := clRed;
   end;
+  StatusLabel.Caption := ReadStatus;
 end;
 
 function TForm1.SelectedAdapterGuid(out AGuid: TGUID): Boolean;
