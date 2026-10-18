@@ -170,6 +170,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FScriptsPath: String;
     FQuickForm: TQuickForm;
     FPingThread: TThread;
+    FQueuedPingTarget: String;
     FBatchThread: TThread;
     FApplyFromQuickMenu: Boolean;
 FDraggedNode: TTreeNode;
@@ -219,9 +220,13 @@ FDraggedNode: TTreeNode;
     function ExecuteWifiConfiguration(
       const AConfig: TNetworkConfig;
       out AError: String
-    ): Boolean;    procedure StartPingTest(const ATarget: String);
+    ): Boolean;
+    function PingTimeoutSeconds: Integer;
+    procedure CancelActivePing;
+    procedure StartPingTest(const ATarget: String);
     procedure PingThreadProgress(AAttempt, AReplies: Integer);
-    procedure PingThreadFinished(AReplies: Integer; const AError: String);
+    procedure PingThreadFinished(AReplies: Integer; const AError: String;
+      ACancelled: Boolean);
     procedure ShowTrayNotification(const AText: String; AWarning: Boolean);
     procedure FinishApplyUI;
     function ValidateBatchLines(
@@ -272,6 +277,7 @@ type
   private
     FOwner: TForm1;
     FTarget: String;
+    FTimeoutSeconds: Integer;
     FAttempt: Integer;
     FReplies: Integer;
     FError: String;
@@ -280,7 +286,8 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(AOwner: TForm1; const ATarget: String);
+    constructor Create(AOwner: TForm1; const ATarget: String;
+      ATimeoutSeconds: Integer);
   end;
 
   TBatchThread = class(TThread)
@@ -394,111 +401,158 @@ begin
   Synchronize(@SyncFinished);
 end;
 
-constructor TPingThread.Create(AOwner: TForm1; const ATarget: String);
+type
+  { Las respuestas ICMP se validan por Status=IP_SUCCESS (0).
+    No usamos el codigo de salida de ping.exe como prueba de conectividad. }
+  TIcmpOptions = record
+    Ttl, Tos, Flags, OptionsSize: Byte;
+    OptionsData: Pointer;
+  end;
+  TIcmpEchoReply = record
+    Address: DWORD;
+    Status: DWORD;
+    RoundTripTime: DWORD;
+    DataSize: Word;
+    Reserved: Word;
+    Data: Pointer;
+    Options: TIcmpOptions;
+  end;
+  TIcmpReplyBuffer = record
+    Reply: TIcmpEchoReply;
+    Extra: array[0..255] of Byte;
+  end;
+
+function LaguNETbiIcmpCreateFile: THandle; stdcall;
+  external 'iphlpapi.dll' name 'IcmpCreateFile';
+function LaguNETbiIcmpCloseHandle(AHandle: THandle): BOOL; stdcall;
+  external 'iphlpapi.dll' name 'IcmpCloseHandle';
+function LaguNETbiIcmpSendEcho(AHandle: THandle; AAddress: DWORD;
+  ARequest: Pointer; ARequestSize: Word; AOptions: Pointer;
+  AReply: Pointer; AReplySize: DWORD; ATimeout: DWORD): DWORD; stdcall;
+  external 'iphlpapi.dll' name 'IcmpSendEcho';
+
+constructor TPingThread.Create(
+  AOwner: TForm1; const ATarget: String; ATimeoutSeconds: Integer
+);
 begin
   inherited Create(True);
   FreeOnTerminate := True;
   FOwner := AOwner;
   FTarget := ATarget;
+  FTimeoutSeconds := ATimeoutSeconds;
 end;
 
 procedure TPingThread.SyncProgress;
 begin
-  if Assigned(FOwner) then
+  if (not Terminated) and Assigned(FOwner) then
     FOwner.PingThreadProgress(FAttempt, FReplies);
 end;
 
 procedure TPingThread.SyncFinished;
 begin
   if Assigned(FOwner) then
-    FOwner.PingThreadFinished(FReplies, FError);
+    FOwner.PingThreadFinished(FReplies, FError, Terminated);
 end;
 
 procedure TPingThread.Execute;
 const
-  PingLimitMs = 10000;
-  PingIntervalMs = 1000;
+  IntervalMs = 1000;
+  Payload: array[0..3] of Byte = (76, 78, 69, 84);
 var
-  Attempt, RemainingMs, WaitMs: Integer;
-  StartedAt: DWORD;
-  P: TProcess;
-  PingExe: String;
+  StartedAt, LimitMs, ElapsedMs, RemainingMs, CallTimeout: DWORD;
+  Address: DWORD;
+  I, Octet: Integer;
+  Parts: TStringList;
+  EchoHandle: THandle;
+  Reply: TIcmpReplyBuffer;
+  ReplyCount: DWORD;
 begin
   FReplies := 0;
   FError := '';
-  StartedAt := GetTickCount;
+  Address := 0;
 
-  PingExe := IncludeTrailingPathDelimiter(GetEnvironmentVariable('WINDIR')) +
-    'System32' + PathDelim + 'PING.EXE';
-  if not FileExists(PingExe) then
-    PingExe := 'ping.exe';
-
-  Attempt := 0;
-  while DWORD(GetTickCount - StartedAt) < PingLimitMs do
-  begin
-    Inc(Attempt);
-    FAttempt := Attempt;
-    Synchronize(@SyncProgress);
-
-    RemainingMs := PingLimitMs - Integer(DWORD(GetTickCount - StartedAt));
-    if RemainingMs <= 0 then
-      Break;
-
-    P := TProcess.Create(nil);
-    try
-      P.Executable := PingExe;
-      P.Parameters.Add('-n');
-      P.Parameters.Add('1');
-      P.Parameters.Add('-w');
-      if RemainingMs < PingIntervalMs then
-        P.Parameters.Add(IntToStr(RemainingMs))
-      else
-        P.Parameters.Add(IntToStr(PingIntervalMs));
-      P.Parameters.Add(FTarget);
-      P.Options := [poNoConsole];
-
-      try
-        P.Execute;
-        while P.Running do
-        begin
-          if DWORD(GetTickCount - StartedAt) >= PingLimitMs then
-          begin
-            P.Terminate(1);
-            Break;
-          end;
-          Sleep(20);
-        end;
-
-        if (DWORD(GetTickCount - StartedAt) < PingLimitMs) and
-           (not P.Running) and (P.ExitStatus = 0) then
-        begin
-          FReplies := 1;
-          Synchronize(@SyncFinished);
-          Exit;
-        end;
-      except
-        on E: Exception do
-          FError := E.Message;
-      end;
-    finally
-      P.Free;
-    end;
-
-    if FError <> '' then
-      Break;
-
-    { Un nuevo intento cada segundo, sin prolongar el limite global. }
-    while DWORD(GetTickCount - StartedAt) < PingLimitMs do
+  { El destino procede de un IPv4 validado, pero no confiamos en ello. }
+  Parts := TStringList.Create;
+  try
+    Parts.Delimiter := '.';
+    Parts.StrictDelimiter := True;
+    Parts.DelimitedText := FTarget;
+    if Parts.Count <> 4 then
     begin
-      WaitMs := Attempt * PingIntervalMs -
-        Integer(DWORD(GetTickCount - StartedAt));
-      if WaitMs <= 0 then
-        Break;
-      if WaitMs < 20 then
-        Sleep(WaitMs)
-      else
-        Sleep(20);
+      FError := 'Destino IPv4 invalido.';
+      Synchronize(@SyncFinished);
+      Exit;
     end;
+    for I := 0 to 3 do
+    begin
+      if (not TryStrToInt(Parts[I], Octet)) or
+         (Octet < 0) or (Octet > 255) then
+      begin
+        FError := 'Destino IPv4 invalido.';
+        Synchronize(@SyncFinished);
+        Exit;
+      end;
+      Address := Address or (DWORD(Octet) shl (8 * I));
+    end;
+  finally
+    Parts.Free;
+  end;
+
+  EchoHandle := LaguNETbiIcmpCreateFile;
+  if EchoHandle = INVALID_HANDLE_VALUE then
+  begin
+    FError := 'No se pudo iniciar ICMP: ' + SysErrorMessage(GetLastError);
+    Synchronize(@SyncFinished);
+    Exit;
+  end;
+
+  try
+    LimitMs := DWORD(FTimeoutSeconds) * 1000;
+    StartedAt := GetTickCount;
+    FAttempt := 0;
+
+    while not Terminated do
+    begin
+      ElapsedMs := DWORD(GetTickCount - StartedAt);
+      if ElapsedMs >= LimitMs then
+        Break;
+
+      Inc(FAttempt);
+      Synchronize(@SyncProgress);
+      if Terminated then
+        Break;
+
+      ElapsedMs := DWORD(GetTickCount - StartedAt);
+      if ElapsedMs >= LimitMs then
+        Break;
+      RemainingMs := LimitMs - ElapsedMs;
+      CallTimeout := IntervalMs;
+      if RemainingMs < CallTimeout then
+        CallTimeout := RemainingMs;
+
+      FillChar(Reply, SizeOf(Reply), 0);
+      ReplyCount := LaguNETbiIcmpSendEcho(
+        EchoHandle, Address, @Payload[0], SizeOf(Payload), nil,
+        @Reply, SizeOf(Reply), CallTimeout
+      );
+
+      if Terminated then
+        Break;
+      if (ReplyCount > 0) and (Reply.Reply.Status = 0) then
+      begin
+        FReplies := 1;
+        Break;
+      end;
+
+      { Se comprueba el tiempo absoluto, no el numero de intentos. }
+      while (not Terminated) and
+            (DWORD(GetTickCount - StartedAt) < LimitMs) and
+            (DWORD(GetTickCount - StartedAt) <
+              DWORD(FAttempt) * IntervalMs) do
+        Sleep(25);
+    end;
+  finally
+    LaguNETbiIcmpCloseHandle(EchoHandle);
   end;
 
   Synchronize(@SyncFinished);
@@ -717,7 +771,7 @@ procedure TQuickForm.TreeDblClick(Sender: TObject);
 var
   ScriptPath: String;
 begin
-  if FRunning then
+  if (Owner is TForm1) and Assigned(TForm1(Owner).FBatchThread) then
     Exit;
 
   ScriptPath := SelectedScriptPath;
@@ -734,11 +788,12 @@ end;
 procedure TQuickForm.BeginExecution(const AName: String; AUsePing: Boolean);
 begin
   FRunning := True;
-  FTree.Enabled := False;
+  { El arbol sigue disponible mientras un ping comprueba el destino. }
+  FTree.Enabled := True;
 
   FProgress.Min := 0;
   if AUsePing then
-    FProgress.Max := 11
+    FProgress.Max := TForm1(Owner).PingTimeoutSeconds + 1
   else
     FProgress.Max := 1;
 
@@ -753,14 +808,14 @@ begin
   FProgress.Position := 1;
 
   if FProgress.Max > 1 then
-    FStatus.Caption := 'IPv4 aplicada - comprobando ping...';
+    FStatus.Caption := 'BAT finalizado - comprobando equipo...';
 end;
 
 procedure TQuickForm.SetPingProgress(AAttempt, AReplies: Integer);
 begin
   FProgress.Position := 1 + AAttempt;
   FStatus.Caption := Format(
-    'Esperando conexion... %d/10',
+    'Comprobando equipo... intento %d',
     [AAttempt]
   );
 end;
@@ -3086,7 +3141,8 @@ begin
     AError := 'No hay un adaptador de red seleccionado.';
     Exit;
   end;
-  { Update 6: DHCP ya habilitado = configuracion aplicada. }
+  { Pedir DHCP cuando ya esta habilitado es una operacion correcta.
+    netsh puede devolver codigo 1 con "DHCP ya esta habilitado". }
   if AConfig.UseDhcp then
   begin
     AdapterIndex := Adapter.ItemIndex;
@@ -3101,7 +3157,6 @@ begin
       begin
         if AdapterId[1] <> '{' then
           AdapterId := '{' + AdapterId;
-
         if AdapterId[Length(AdapterId)] <> '}' then
           AdapterId := AdapterId + '}';
 
@@ -3110,7 +3165,6 @@ begin
           AdapterId;
 
         DhcpKey := 0;
-
         if RegOpenKeyExA(
           HKEY_LOCAL_MACHINE,
           PAnsiChar(AnsiString(DhcpKeyPath)),
@@ -3462,37 +3516,97 @@ begin
   TrayIcon.ShowBalloonHint;
 end;
 
+function TForm1.PingTimeoutSeconds: Integer;
+var
+  Ini: TIniFile;
+  Value: Integer;
+begin
+  Result := 10;
+  if (FIniPath = '') or not FileExists(FIniPath) then
+    Exit;
+
+  Ini := TIniFile.Create(FIniPath);
+  try
+    Value := Ini.ReadInteger('Ping', 'Timeout', 10);
+    if Value <= 0 then
+      Value := 10;
+    if Value > 30 then
+      Value := 30;
+    Result := Value;
+  except
+    Result := 10;
+  end;
+  Ini.Free;
+end;
+
+procedure TForm1.CancelActivePing;
+begin
+  FQueuedPingTarget := '';
+  if Assigned(FPingThread) then
+  begin
+    { Limpiar el progreso del tray, sin publicar resultado del ping. }
+    if FApplyFromQuickMenu and Assigned(FQuickForm) then
+      FQuickForm.FinishExecution('');
+    FPingThread.Terminate;
+  end;
+  PingProgress.Visible := False;
+end;
+
 procedure TForm1.StartPingTest(const ATarget: String);
 begin
+  { La prueba vieja puede estar terminando. En ese caso encolamos
+    solo el destino nuevo; nunca conviviran dos pruebas activas. }
   if Assigned(FPingThread) then
+  begin
+    FQueuedPingTarget := ATarget;
     Exit;
-PingProgress.Min := 0;
-  PingProgress.Max := 10;
+  end;
+
+  FQueuedPingTarget := '';
+  PingProgress.Min := 0;
+  PingProgress.Max := PingTimeoutSeconds;
   PingProgress.Position := 0;
   PingProgress.Visible := True;
 
   StatusLabel.Font.Color := TColor(7760478);
-  StatusLabel.Caption := 'Esperando conexion...';
+  StatusLabel.Caption := 'Comprobando equipo...';
 
-  FPingThread := TPingThread.Create(Self, ATarget);
+  FPingThread := TPingThread.Create(Self, ATarget, PingTimeoutSeconds);
   FPingThread.Start;
 end;
+
 procedure TForm1.PingThreadProgress(AAttempt, AReplies: Integer);
 begin
-  PingProgress.Position := AAttempt;
+  if AAttempt <= PingProgress.Max then
+    PingProgress.Position := AAttempt;
   StatusLabel.Font.Color := TColor(7760478);
-  StatusLabel.Caption := Format(
-    'Esperando conexion... intento %d/10',
-    [AAttempt]
-  );
+  StatusLabel.Caption := Format('Comprobando equipo... intento %d',
+    [AAttempt]);
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then
     FQuickForm.SetPingProgress(AAttempt, AReplies);
 end;
-procedure TForm1.PingThreadFinished(AReplies: Integer; const AError: String);
+
+procedure TForm1.PingThreadFinished(
+  AReplies: Integer; const AError: String; ACancelled: Boolean
+);
+var
+  NextTarget: String;
 begin
-  { El hilo ya no volvera a tocar el formulario despues de este callback. }
+  { El hilo ya no volvera a acceder al formulario al salir del callback. }
   FPingThread := nil;
+
+  { Cancelar NO produce OK/NOK, ni altera el resultado de la orden nueva. }
+  if ACancelled then
+  begin
+    NextTarget := FQueuedPingTarget;
+    FQueuedPingTarget := '';
+    if NextTarget <> '' then
+      StartPingTest(NextTarget)
+    else if not Assigned(FBatchThread) then
+      UpdateValidationUI;
+    Exit;
+  end;
 
   PingProgress.Position := 0;
   PingProgress.Visible := False;
@@ -3501,25 +3615,22 @@ begin
   begin
     StatusLabel.Font.Color := clRed;
     StatusLabel.Caption := 'PING NOK - error: ' + AError;
-
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Conexion NOK', True);
+      ShowTrayNotification('PING NOK', True);
   end
   else if AReplies > 0 then
   begin
     StatusLabel.Font.Color := clGreen;
     StatusLabel.Caption := 'PING OK';
-
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Conexion OK', False);
+      ShowTrayNotification('PING OK', False);
   end
   else
   begin
     StatusLabel.Font.Color := clRed;
     StatusLabel.Caption := 'PING NOK';
-
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Conexion NOK', True);
+      ShowTrayNotification('PING NOK', True);
   end;
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then
@@ -3705,16 +3816,13 @@ begin
     Exit;
   end;
 
-  if AUsePing and IsValidIPv4(APingTarget) then
+  if (AExitCode = 0) and AUsePing and IsValidIPv4(APingTarget) then
   begin
     StatusLabel.Font.Color := TColor(7760478);
     StatusLabel.Caption := 'BAT ejecutado. Comprobando conexion...';
 
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.SetIPv4Done;
-
-    if FApplyFromQuickMenu then
-      ShowTrayNotification('Comprobando conexion...', False);
 
     StartPingTest(APingTarget);
     Exit;
@@ -3753,8 +3861,10 @@ var
   UsePing: Boolean;
   PingTarget: String;
 begin
-  if Assigned(FPingThread) or Assigned(FBatchThread) then
+  if Assigned(FBatchThread) then
     Exit;
+
+  CancelActivePing;
 
   if not ValidateBatchForExecution(AFileName, ValidationError) then
   begin
@@ -3812,19 +3922,14 @@ begin
   { Establecer aplica siempre la configuracion actual de la interfaz.
     No ejecuta ni modifica el BAT seleccionado. }
 
-  FApplyFromQuickMenu := False;
-
   if Assigned(FBatchThread) then
   begin
     StatusLabel.Caption := 'Hay un BAT en ejecucion. Espera a que termine.';
     Exit;
   end;
 
-  if Assigned(FPingThread) then
-  begin
-    StatusLabel.Caption := 'Ya hay una comprobacion de ping en curso.';
-    Exit;
-  end;
+  CancelActivePing;
+  FApplyFromQuickMenu := False;
 
   Config := CurrentNetworkConfig;
   Validation := EvaluateConfiguration(Config);
