@@ -6,7 +6,7 @@ interface
 
 uses
   Windows, Classes, SysUtils, Forms, Controls, Graphics,
-  StdCtrls, ExtCtrls, ComCtrls, ImgList, IniFiles;
+  StdCtrls, ExtCtrls, ComCtrls, ImgList, IniFiles, uLanguage;
 
 type
   TQuickScriptExecuteEvent = procedure(const AFileName: String) of object;
@@ -268,7 +268,8 @@ begin
     AddDirectory(ARootPath, RootNode);
 
     if RootNode.Count = 0 then
-      TreeScripts.Items.AddChild(RootNode, '(sin scripts .bat)');
+      TreeScripts.Items.AddChild(RootNode,
+        LanguageText('Quick', 'Empty', '(no BAT scripts)'));
 
     RestoreTreeState(RootNode);
   finally
@@ -346,7 +347,7 @@ begin
 
   QuickProgress.Position := 0;
   QuickProgress.Visible := True;
-  StatusText.Caption := 'Aplicando: ' + AName;
+  StatusText.Caption := LanguageText('Quick', 'Applying', 'Applying:') + ' ' + AName;
   StatusText.Visible := True;
 end;
 
@@ -355,16 +356,15 @@ begin
   QuickProgress.Position := 1;
 
   if QuickProgress.Max > 1 then
-    StatusText.Caption := 'BAT finalizado - comprobando equipo...';
+    StatusText.Caption := LanguageText('Quick', 'IPv4Done',
+      'BAT finished - checking host...');
 end;
 
 procedure TQuickForm.SetPingProgress(AAttempt, AReplies: Integer);
 begin
   QuickProgress.Position := 1 + AAttempt;
-  StatusText.Caption := Format(
-    'Comprobando equipo... intento %d',
-    [AAttempt]
-  );
+  StatusText.Caption := LanguageFormat('Quick', 'PingAttempt',
+    'Checking host... attempt %d', [AAttempt]);
 end;
 procedure TQuickForm.FinishExecution(const AStatus: String);
 begin

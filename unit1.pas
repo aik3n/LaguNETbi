@@ -176,6 +176,8 @@ FDraggedNode: TTreeNode;
     FAdapterGuids: TStringList;
     procedure CreateScriptImages;
     procedure SetBatPreviewExpanded(AExpanded: Boolean);
+    procedure ApplyLanguage;
+    procedure SettingsLanguageChanged(Sender: TObject);
     procedure EnumerateNetworkAdapters;
     function IsLikelyVirtualAdapter(const FriendlyName,
       Description: String): Boolean;
@@ -258,7 +260,7 @@ var
 implementation
 
 uses
-  uWindowsSupport, uSettingsForm, uPersistentIPv4;
+  uWindowsSupport, uSettingsForm, uPersistentIPv4, uLanguage;
 
 {$R *.lfm}
 
@@ -776,6 +778,10 @@ begin
   end;
 
 
+  { INI local ya creado por Update 027: detectar idioma antes de
+    inicializar las etiquetas del formulario y del popup del tray. }
+  LanguageInitialize;
+
   if FileExists(FIniPath) then
 
   begin
@@ -834,6 +840,7 @@ begin
   CreateScriptImages;
   RefreshSidebarScripts;
   UpdateValidationUI;
+  ApplyLanguage;
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
@@ -2064,11 +2071,15 @@ begin
   if not Assigned(ANode) then
     Exit;
 
-  Result := ANode.Text;
-  Cur := ANode.Parent;
-  while Assigned(Cur) do
+  { La raiz 'scripts' representa FScriptsPath y NO es parte de la ruta
+    relativa. Los nombres de subcarpetas y BAT se mantienen intactos. }
+  Cur := ANode;
+  while Assigned(Cur) and Assigned(Cur.Parent) do
   begin
-    Result := Cur.Text + PathDelim + Result;
+    if Result = '' then
+      Result := Cur.Text
+    else
+      Result := Cur.Text + PathDelim + Result;
     Cur := Cur.Parent;
   end;
 end;
@@ -2093,7 +2104,8 @@ begin
   for I := 0 to ScriptTree.Items.Count - 1 do
   begin
     Node := ScriptTree.Items[I];
-    if Node.Expanded and DirectoryExists(ScriptNodePath(Node)) then
+    if Assigned(Node.Parent) and Node.Expanded and
+       DirectoryExists(ScriptNodePath(Node)) then
       AList.Add(NodeRelativePath(Node));
   end;
 end;
@@ -2357,6 +2369,7 @@ procedure TForm1.RefreshSidebarScripts;
 var
   N: Integer;
   Expanded: TStringList;
+  RootNode: TTreeNode;
 begin
   Expanded := TStringList.Create;
   try
@@ -2373,8 +2386,14 @@ begin
     ScriptTree.Items.BeginUpdate;
     try
       ScriptTree.Items.Clear;
-      AddSidebarDirectory(FScriptsPath, nil);
+      { Raiz visible de scripts (Update 030): existe tambien sin BAT. }
+      RootNode := ScriptTree.Items.AddChild(nil, 'scripts');
+      RootNode.ImageIndex := 0;
+      RootNode.SelectedIndex := 0;
+      AddSidebarDirectory(FScriptsPath, RootNode);
       ApplyExpandedFolders(Expanded);
+      { La raiz permanece abierta; solo se persiste el estado de sus hijos. }
+      RootNode.Expand(False);
     finally
       ScriptTree.Items.EndUpdate;
     end;
@@ -2383,10 +2402,18 @@ begin
   end;
 
   N := CountBatFiles(FScriptsPath);
+  if N = 0 then
+  begin
+    { Primera ejecucion: permitir crear inmediatamente el primer BAT. }
+    ScriptTree.Selected := RootNode;
+    ScriptTreeClick(nil);
+  end;
+
   if N = 1 then
-    CountLabel.Caption := '1 script'
+    CountLabel.Caption := LanguageText('Main', 'CountOne', '1 script')
   else
-    CountLabel.Caption := IntToStr(N) + ' scripts';
+    CountLabel.Caption := LanguageFormat(
+      'Main', 'CountMany', '%d scripts', [N]);
 end;
 
 procedure TForm1.ExecuteScript(Sender: TObject);
@@ -3999,6 +4026,43 @@ end;
 
 
 
+{ Cadenas estaticas de la ventana. La traduccion no modifica los
+  parametros de red ni el contenido del BAT seleccionado. }
+procedure TForm1.ApplyLanguage;
+begin
+  ProfilesLabel.Caption := LanguageText('Main', 'Profiles', 'Profiles');
+  ProfileTitle.Caption := LanguageText('Main', 'Profile', 'Profile');
+  DescriptionLabel.Caption := LanguageText('Main', 'Description', 'Description');
+  AdapterLabel.Caption := LanguageText('Main', 'Adapter', 'Network adapter');
+  ReadCurrentButton.Caption := LanguageText('Main', 'ReadCurrent', 'Read current');
+  AutomaticBox.Caption := LanguageText('Main', 'Automatic', 'Obtain an IP address automatically (DHCP)');
+  VirtualFilterBox.Caption := LanguageText('Main', 'Virtual', 'Show virtual adapters');
+  AddressLabel.Caption := LanguageText('Main', 'Address', 'IP address');
+  MaskLabel.Caption := LanguageText('Main', 'Mask', 'Subnet mask');
+  GatewayLabel.Caption := LanguageText('Main', 'Gateway', 'Default gateway');
+  WifiBox.Caption := LanguageText('Main', 'Wifi', 'Connect Wi-Fi');
+  PingBox.Caption := LanguageText('Main', 'Ping', 'Check connection (PING)');
+  ApplyButton.Caption := LanguageText('Main', 'Apply', 'Apply');
+  SaveButton.Caption := LanguageText('Main', 'Save', 'Save');
+  BatContentLabel.Caption := LanguageText('Main', 'BatContent', 'BAT contents');
+  HelpButton.Hint := LanguageText('Main', 'SettingsHint', 'Help and settings');
+
+  ShowMenuItem.Caption := LanguageText('Tray', 'Open', 'Open LaguNETbi');
+  HideMenuItem.Caption := LanguageText('Tray', 'Hide', 'Hide LaguNETbi');
+  ExitMenuItem.Caption := LanguageText('Tray', 'Exit', 'Exit');
+  FExecuteScriptMenuItem.Caption := LanguageText('Tray', 'Execute', 'Execute');
+  FEditScriptMenuItem.Caption := LanguageText('Tray', 'Edit', 'Edit BAT');
+  FOpenLocationMenuItem.Caption := LanguageText('Tray', 'Location', 'Open location');
+
+end;
+
+procedure TForm1.SettingsLanguageChanged(Sender: TObject);
+begin
+  ApplyLanguage;
+  if Assigned(FQuickForm) then
+    FQuickForm.RefreshScripts(FScriptsPath);
+end;
+
 procedure TForm1.ShowHelpWindow(Sender: TObject);
 
 var
@@ -4014,6 +4078,7 @@ begin
     SettingsDialog.ShowBatContent := BatMemo.Visible;
 
     SettingsDialog.OnShowBatContentChanged := @SettingsBatContentChanged;
+    SettingsDialog.OnLanguageChanged := @SettingsLanguageChanged;
 
     SettingsDialog.ShowModal;
 

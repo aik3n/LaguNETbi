@@ -20,6 +20,7 @@ function LaguNETbiRunElevatedNetsh(
   out AError: String
 ): Boolean;
 function PrepareLaguNETbiStartup: Boolean;
+procedure LaguNETbiNotifyStartupReady;
 
 implementation
 
@@ -132,6 +133,30 @@ begin
     Result := True;
   finally
     P.Free;
+  end;
+end;
+
+{ /Run nunca se solicita para la tarea de otra ubicacion. }
+function LaguNETbiRequestScheduledStart: Boolean;
+var
+  Args: TStringList;
+  ExitCode: LongInt;
+  TaskExe: String;
+begin
+  Result := False;
+  TaskExe := LaguNETbiSchtasksPath;
+  if (TaskExe = '') or not FileExists(TaskExe) then
+    Exit;
+
+  Args := TStringList.Create;
+  try
+    Args.Add('/Run');
+    Args.Add('/TN');
+    Args.Add('LaguNETbi');
+    Result := LaguNETbiRunProcess(TaskExe, Args, ExitCode) and
+      (ExitCode = 0);
+  finally
+    Args.Free;
   end;
 end;
 
@@ -533,6 +558,78 @@ begin
   end;
 end;
 
+{ Nombre local determinista por ruta: dos copias diferentes no comparten
+  la confirmacion de inicio. El evento solo vive mientras existe el lanzador. }
+function LaguNETbiStartupEventName: UnicodeString;
+var
+  ExePath: String;
+  I: Integer;
+  Hash: DWORD;
+begin
+  ExePath := AnsiLowerCase(ExpandFileName(ParamStr(0)));
+  Hash := $811C9DC5;
+  for I := 1 to Length(ExePath) do
+    Hash := (Hash xor DWORD(Ord(ExePath[I]))) * DWORD($01000193);
+  Result := UnicodeString('Local\LaguNETbiStartup_' + IntToHex(Hash, 8));
+end;
+
+{ La copia iniciada por la tarea debe avisar DESPUES de crear el formulario
+  principal, aunque este permanezca oculto en el tray. }
+procedure LaguNETbiNotifyStartupReady;
+const
+  EVENT_MODIFY_STATE_LAGUNET = $0002;
+var
+  H: THandle;
+  EventName: UnicodeString;
+begin
+  EventName := LaguNETbiStartupEventName;
+  H := OpenEventW(EVENT_MODIFY_STATE_LAGUNET, False, PWideChar(EventName));
+  if H = 0 then
+    Exit;
+  try
+    SetEvent(H);
+  finally
+    CloseHandle(H);
+  end;
+end;
+
+{ Evita reintentos recursivos incluso si una tarea mal configurada lanza
+  una instancia que no tiene privilegios elevados. }
+function LaguNETbiLaunchPending: Boolean;
+const
+  SYNCHRONIZE_LAGUNET = $00100000;
+var
+  H: THandle;
+  EventName: UnicodeString;
+begin
+  EventName := LaguNETbiStartupEventName;
+  H := OpenEventW(SYNCHRONIZE_LAGUNET, False, PWideChar(EventName));
+  Result := H <> 0;
+  if H <> 0 then
+    CloseHandle(H);
+end;
+
+{ /Run solo confirma que Windows acepto la solicitud. Esperamos como maximo
+  6 segundos a que la NUEVA aplicacion confirme su inicializacion. }
+function LaguNETbiTryScheduledStart: Boolean;
+var
+  H: THandle;
+  EventName: UnicodeString;
+begin
+  Result := False;
+  EventName := LaguNETbiStartupEventName;
+  H := CreateEventW(nil, True, False, PWideChar(EventName));
+  if H = 0 then
+    Exit;
+  try
+    ResetEvent(H);
+    if LaguNETbiRequestScheduledStart then
+      Result := WaitForSingleObject(H, 6000) = WAIT_OBJECT_0;
+  finally
+    CloseHandle(H);
+  end;
+end;
+
 function PrepareLaguNETbiStartup: Boolean;
 var
   CaptionW: UnicodeString;
@@ -558,8 +655,29 @@ begin
     );
   end;
 
-  { Inicio manual independiente de la tarea de Windows: se ejecuta
-    siempre este EXE. La tarea solo se usa al iniciar sesion en Windows. }
+  { Con permisos ya concedidos, nunca reiniciar otra instancia. }
+  if LaguNETbiIsElevated then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  { Una instancia lanzada por la tarea no debe pedir iniciar otra tarea,
+    incluso si Windows no le concedio elevacion. }
+  if LaguNETbiLaunchPending then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  { Solo iniciamos la tarea si apunta al ejecutable actual. }
+  if LaguNETbiTaskTargetsThisExe and LaguNETbiTryScheduledStart then
+  begin
+    { Cerrar este proceso SOLO tras recibir la confirmacion del nuevo. }
+    Exit;
+  end;
+
+  { Tarea ausente, distinta, fallida o sin confirmacion: esta copia sigue. }
   Result := True;
 end;
 

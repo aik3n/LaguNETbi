@@ -46,6 +46,8 @@ begin
   { El formulario principal existe, pero solo aparece si lo solicita el usuario. }
   Application.ShowMainForm := False;
   Application.CreateForm(TForm1, Form1);
+  { Avisar solo despues de crear correctamente la instancia del tray. }
+  LaguNETbiNotifyStartupReady;
   Application.Run;
 end.
 
