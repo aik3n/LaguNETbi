@@ -5,7 +5,7 @@ unit Unit1;
 interface
 
 uses
-  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList, Buttons, uQuickForm;
+  Windows, ShellApi, Classes, SysUtils, Process, Types, IniFiles, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, ImgList, Buttons, uQuickForm, uLanguageRepo;
 
 type
 {$PUSH}
@@ -158,6 +158,8 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FTrayReady: Boolean;
     FScriptsPath: String;
     FQuickForm: TQuickForm;
+    FAutoLanguageWorker: TLanguageRepoThread;
+    FAutoLanguageCode: String;
     FPingThread: TThread;
     FQueuedPingTarget: String;
     FBatchThread: TThread;
@@ -178,6 +180,8 @@ FDraggedNode: TTreeNode;
     procedure SetBatPreviewExpanded(AExpanded: Boolean);
     procedure ApplyLanguage;
     procedure SettingsLanguageChanged(Sender: TObject);
+    procedure StartAutoLanguageDownload;
+    procedure AutoLanguageNetworkFinished(Sender: TObject);
     procedure EnumerateNetworkAdapters;
     function IsLikelyVirtualAdapter(const FriendlyName,
       Description: String): Boolean;
@@ -841,10 +845,68 @@ begin
   RefreshSidebarScripts;
   UpdateValidationUI;
   ApplyLanguage;
+  StartAutoLanguageDownload;
+end;
+
+procedure TForm1.StartAutoLanguageDownload;
+begin
+  { Nunca bloquear el arranque, y no consultar GitHub si ya tenemos
+    el idioma local o si el idioma deseado es ingles. }
+  FAutoLanguageCode := LanguageDesiredCode;
+  if (FAutoLanguageCode = 'eng') or
+     (LanguageEffective <> 'eng') or
+     (LanguageRepoLocalFile(FAutoLanguageCode) <> '') then Exit;
+  FAutoLanguageWorker := TLanguageRepoThread.Create(lraSearch, '', '');
+  FAutoLanguageWorker.OnTerminate := @AutoLanguageNetworkFinished;
+  FAutoLanguageWorker.Start;
+end;
+
+procedure TForm1.AutoLanguageNetworkFinished(Sender: TObject);
+var
+  RepoAction: TLanguageRepoAction;
+  ErrorText, FileName: String;
+  I: Integer;
+begin
+  if not Assigned(FAutoLanguageWorker) or
+     (Sender <> FAutoLanguageWorker) then Exit;
+  RepoAction := FAutoLanguageWorker.Action;
+  ErrorText := FAutoLanguageWorker.ErrorText;
+  FileName := '';
+  if (RepoAction = lraSearch) and (ErrorText = '') then
+    for I := 0 to FAutoLanguageWorker.Files.Count - 1 do
+      if LanguageRepoCode(FAutoLanguageWorker.Files[I]) = FAutoLanguageCode then
+      begin
+        FileName := FAutoLanguageWorker.Files[I];
+        Break;
+      end;
+  FAutoLanguageWorker := nil;
+  if FAutoLanguageCode <> LanguageDesiredCode then Exit;
+  if RepoAction = lraSearch then
+  begin
+    if (FileName = '') or
+       (LanguageRepoLocalFile(FAutoLanguageCode) <> '') then Exit;
+    FAutoLanguageWorker := TLanguageRepoThread.Create(
+      lraDownload, FAutoLanguageCode, FileName);
+    FAutoLanguageWorker.OnTerminate := @AutoLanguageNetworkFinished;
+    FAutoLanguageWorker.Start;
+  end
+  else if ErrorText = '' then
+  begin
+    LanguageReload;
+    ApplyLanguage;
+    if Assigned(FQuickForm) then
+      FQuickForm.RefreshScripts(FScriptsPath);
+  end;
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  if Assigned(FAutoLanguageWorker) then
+  begin
+    FAutoLanguageWorker.OnTerminate := nil;
+    FAutoLanguageWorker.Terminate;
+    FAutoLanguageWorker := nil;
+  end;
   FAdapterGuids.Free;
   FAdapterTypes.Free;
   FDescriptionTexts.Free;

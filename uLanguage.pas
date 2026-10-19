@@ -13,6 +13,8 @@ function LanguageFormat(const ASection, AKey, AEnglish: String;
   const AArgs: array of const): String;
 function LanguageSelected: String;
 function LanguageEffective: String;
+function LanguageDesiredCode: String;
+procedure LanguageReload;
 function LanguageSetSelection(const ACode: String): Boolean;
 
 implementation
@@ -31,12 +33,25 @@ var
   LEffective: String = 'eng';
   LTranslation: TIniFile = nil;
 
+{ Cualquier codigo ISO de 3 letras descubierto en lang/ es valido.
+  Se valida el formato para impedir nombres de archivo arbitrarios. }
 function LanguageNormalizeChoice(const ACode: String): String;
+var
+  I: Integer;
 begin
   Result := LowerCase(Trim(ACode));
-  if (Result <> 'auto') and (Result <> 'eng') and
-     (Result <> 'spa') then
+  if Result = 'auto' then Exit;
+  if Length(Result) <> 3 then
+  begin
     Result := 'auto';
+    Exit;
+  end;
+  for I := 1 to 3 do
+    if not (Result[I] in ['a'..'z']) then
+    begin
+      Result := 'auto';
+      Exit;
+    end;
 end;
 
 function LanguageWindowsCode: String;
@@ -176,6 +191,19 @@ begin
     { Formatos incorrectos en traducciones externas: usar ingles. }
     Result := Format(AEnglish, AArgs);
   end;
+end;
+
+function LanguageDesiredCode: String;
+begin
+  if LSelected = 'auto' then
+    Result := LanguageWindowsCode
+  else
+    Result := LSelected;
+end;
+
+procedure LanguageReload;
+begin
+  LanguageLoad;
 end;
 
 function LanguageSelected: String;
