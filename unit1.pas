@@ -775,7 +775,7 @@ begin
     except
       on E: Exception do
         ShowTrayNotification(
-          'No se pudo crear LaguNETbi.ini. Comprueba los permisos de la carpeta.',
+          LanguageText('Messages', 'IniWriteError', 'Could not create LaguNETbi.ini. Check folder permissions.'),
           True
         );
     end;
@@ -921,14 +921,14 @@ begin
   begin
     FExiting := False;
     CloseAction := caNone;
-    StatusLabel.Caption := 'BAT en curso. Espera a que termine para salir.';
+    StatusLabel.Caption := LanguageText('Messages', 'BatBusyOnExit', 'A BAT is running. Wait for it to finish before exiting.');
     Exit;
   end;
   if FExiting and Assigned(FPingThread) then
   begin
     FExiting := False;
     CloseAction := caNone;
-    StatusLabel.Caption := 'Ping en curso. Espera a que termine para salir.';
+    StatusLabel.Caption := LanguageText('Messages', 'PingBusyOnExit', 'A ping is running. Wait for it to finish before exiting.');
     Exit;
   end;
   if FIniPath <> '' then
@@ -1473,19 +1473,19 @@ var
   Attempt: Integer;
 begin
   Result := False;
-  AStatus := 'No se pudo consultar la configuracion IPv4.';
+  AStatus := LanguageText('Messages', 'ReadIPv4Failed', 'Could not read the IPv4 configuration.');
 
   Index := Adapter.ItemIndex;
   if not Assigned(FAdapterGuids) or (Index < 0) or
      (Index >= FAdapterGuids.Count) then
   begin
-    AStatus := 'Selecciona un adaptador valido.';
+    AStatus := LanguageText('Messages', 'ChooseValidAdapter', 'Select a valid network adapter.');
     Exit;
   end;
   TargetId := NormalizeAdapterId(FAdapterGuids[Index]);
   if TargetId = '' then
   begin
-    AStatus := 'El adaptador seleccionado no tiene identificador.';
+    AStatus := LanguageText('Messages', 'AdapterWithoutId', 'The selected adapter has no identifier.');
     Exit;
   end;
 
@@ -1498,7 +1498,7 @@ begin
   );
   if (QueryResult <> ERROR_BUFFER_OVERFLOW_LAGUNET) or (BufferSize = 0) then
   begin
-    AStatus := 'Windows no devolvio informacion IPv4 del adaptador.';
+    AStatus := LanguageText('Messages', 'NoAdapterIPv4Info', 'Windows returned no IPv4 information for the adapter.');
     Exit;
   end;
 
@@ -1516,7 +1516,7 @@ begin
         Continue;
       if QueryResult <> NO_ERROR_LAGUNET then
       begin
-        AStatus := 'Windows no pudo obtener la configuracion IPv4.';
+        AStatus := LanguageText('Messages', 'WinIPv4Failed', 'Windows could not retrieve the IPv4 configuration.');
         Exit;
       end;
 
@@ -1533,7 +1533,7 @@ begin
       end;
       if not Assigned(AdapterInfo) then
       begin
-        AStatus := 'No se encontro IPv4 en el adaptador seleccionado.';
+        AStatus := LanguageText('Messages', 'NoIPv4Selected', 'No IPv4 configuration was found for the selected adapter.');
         Exit;
       end;
 
@@ -1601,15 +1601,15 @@ begin
       GatewayEdit.Text := GatewayValue;
 
       if SavedIP <> '' then
-        AStatus := 'IPv4 guardada de ' + AdapterCommandName
+        AStatus := LanguageText('Messages', 'SavedIPv4From', 'Saved IPv4 from') + ' ' + AdapterCommandName
       else
-        AStatus := 'IPv4 leida de ' + AdapterCommandName;
+        AStatus := LanguageText('Messages', 'ReadIPv4From', 'IPv4 read from') + ' ' + AdapterCommandName;
       if not Connected then
-        AStatus := AStatus + ' (adaptador desconectado)'
+        AStatus := AStatus + ' ' + LanguageText('Messages', 'AdapterDisconnected', '(adapter disconnected)')
       else if (IPValue = '') and DhcpEnabled then
-        AStatus := AStatus + ' (DHCP sin direccion asignada)'
+        AStatus := AStatus + ' ' + LanguageText('Messages', 'DhcpWithoutAddress', '(DHCP without an assigned address)')
       else if IPValue = '' then
-        AStatus := AStatus + ' (sin direccion IPv4)';
+        AStatus := AStatus + ' ' + LanguageText('Messages', 'NoIPv4Address', '(no IPv4 address)');
       Result := True;
       Exit;
     finally
@@ -1617,7 +1617,7 @@ begin
       Buffer := nil;
     end;
   end;
-  AStatus := 'La lista de adaptadores cambio durante la lectura.';
+  AStatus := LanguageText('Messages', 'AdapterListChanged', 'The adapter list changed while reading it.');
 end;
 
 procedure TForm1.ReadCurrentConfiguration(Sender: TObject);
@@ -2045,7 +2045,7 @@ begin
       Lines.LoadFromFile(AFileName);
     except
       BatMemo.Clear;
-      StatusLabel.Caption := 'No se pudo leer ' + ExtractFileName(AFileName);
+      StatusLabel.Caption := LanguageText('Messages', 'CannotReadFile', 'Could not read') + ' ' + ExtractFileName(AFileName);
       Exit;
     end;
 
@@ -2579,26 +2579,26 @@ begin
     ScriptPath := ScriptNodePath(ScriptTree.Selected);
     NameEdit.Enabled := True;
     LoadScriptConfiguration(ScriptPath);
-    StatusLabel.Caption := 'Script cargado: ' + ScriptTree.Selected.Text;
+    StatusLabel.Caption := LanguageText('Messages', 'ScriptLoaded', 'Script loaded:') + ' ' + ScriptTree.Selected.Text;
     Exit;
   end;
 
   if IsFolderNode(ScriptTree.Selected) then
   begin
     { Modo nuevo script: conservamos la configuracion de red actual. }
-    PreviewLabel.Caption := 'Nuevo BAT';
+    PreviewLabel.Caption := LanguageText('Messages', 'NewBat', 'New BAT');
     NameEdit.Enabled := True;
     NameEdit.Text := '';
     DescriptionEdit.Enabled := True;
     DescriptionEdit.Text := '';
     BatMemo.Clear;
     UpdateBatScrollBars;
-    StatusLabel.Caption := 'Nuevo script en: ' + ScriptTree.Selected.Text;
+    StatusLabel.Caption := LanguageText('Messages', 'NewScriptIn', 'New script in:') + ' ' + ScriptTree.Selected.Text;
     UpdateValidationUI;
     Exit;
   end;
 
-  PreviewLabel.Caption := 'Sin BAT seleccionado';
+  PreviewLabel.Caption := LanguageText('Messages', 'NoBatSelected', 'No BAT selected');
   NameEdit.Text := '';
   NameEdit.Enabled := False;
   DescriptionEdit.Text := '';
@@ -2666,7 +2666,7 @@ begin
     ScriptTree.Selected := Node;
     FDraggedNode := Node;
     ScriptTree.Cursor := crSizeAll;
-    StatusLabel.Caption := 'Mover: ' + Node.Text;
+    StatusLabel.Caption := LanguageText('Messages', 'MoveHint', 'Move:') + ' ' + Node.Text;
   end;
 end;
 
@@ -2695,12 +2695,12 @@ begin
     if Accept then
     begin
       ScriptTree.Cursor := crSizeAll;
-      StatusLabel.Caption := 'Mover ' + FDraggedNode.Text + ' -> scripts';
+      StatusLabel.Caption := LanguageText('Messages', 'MoveTo', 'Move') + ' ' + FDraggedNode.Text + ' -> scripts';
     end
     else
     begin
       ScriptTree.Cursor := crDefault;
-      StatusLabel.Caption := 'El script ya esta en scripts';
+      StatusLabel.Caption := LanguageText('Messages', 'ScriptAlreadyAtRoot', 'The script is already in scripts');
     end;
     Exit;
   end;
@@ -2718,18 +2718,18 @@ begin
       ScriptTree.Selected := TargetNode;
       ScriptTree.Cursor := crSizeAll;
       TargetName := TargetNode.Text;
-      StatusLabel.Caption := 'Mover ' + FDraggedNode.Text + ' -> ' + TargetName;
+      StatusLabel.Caption := LanguageText('Messages', 'MoveTo', 'Move') + ' ' + FDraggedNode.Text + ' -> ' + TargetName;
     end
     else
     begin
       ScriptTree.Cursor := crDefault;
-      StatusLabel.Caption := 'El script ya esta en ' + TargetNode.Text;
+      StatusLabel.Caption := LanguageText('Messages', 'ScriptAlreadyIn', 'The script is already in') + ' ' + TargetNode.Text;
     end;
   end
   else
   begin
     ScriptTree.Cursor := crDefault;
-    StatusLabel.Caption := 'Suelta sobre una carpeta';
+    StatusLabel.Caption := LanguageText('Messages', 'DropOnFolder', 'Drop onto a folder');
   end;
 end;
 
@@ -2764,15 +2764,15 @@ begin
   if FileExists(DestPath) then
   begin
     Answer := MessageDlg(
-      'Ya existe "' + ExtractFileName(DestPath) + '" en esa carpeta.' + LineEnding +
-      '¿Quieres reemplazarlo?',
+      LanguageText('Messages', 'AlreadyExistsStart', 'A file named "') + ExtractFileName(DestPath) + LanguageText('Messages', 'AlreadyExistsEnd', '" already exists in that folder.') + LineEnding +
+      LanguageText('Messages', 'ReplaceFile', 'Do you want to replace it?'),
       mtConfirmation, [mbYes, mbNo], 0);
     if Answer <> mrYes then
       Exit;
 
     if not DeleteFile(DestPath) then
     begin
-      MessageDlg('No se pudo reemplazar el archivo de destino.',
+      MessageDlg(LanguageText('Messages', 'CannotReplace', 'Could not replace the destination file.'),
         mtError, [mbOK], 0);
       Exit;
     end;
@@ -2780,7 +2780,7 @@ begin
 
   if not RenameFile(SourcePath, DestPath) then
   begin
-    MessageDlg('No se pudo mover el script.' + LineEnding +
+    MessageDlg(LanguageText('Messages', 'CannotMove', 'Could not move the script.') + LineEnding +
       SourcePath + LineEnding + '->' + LineEnding + DestPath,
       mtError, [mbOK], 0);
     Exit;
@@ -2791,7 +2791,7 @@ begin
   if Assigned(FQuickForm) then
     FQuickForm.RefreshScripts(FScriptsPath);
 
-  StatusLabel.Caption := 'Movido: ' + ExtractFileName(DestPath);
+  StatusLabel.Caption := LanguageText('Messages', 'Moved', 'Moved:') + ' ' + ExtractFileName(DestPath);
 end;
 
 procedure TForm1.SetBatPreviewExpanded(AExpanded: Boolean);
@@ -2936,7 +2936,7 @@ begin
     IsFolderNode(ScriptTree.Selected)) then
   begin
     MessageDlg(
-      'Selecciona un script o una carpeta.',
+      LanguageText('Messages', 'SelectScriptOrFolder', 'Select a script or folder.'),
       mtInformation,
       [mbOK],
       0
@@ -2950,7 +2950,7 @@ begin
   if DestinationDir = '' then
   begin
     MessageDlg(
-      'No se pudo determinar la carpeta de destino.',
+      LanguageText('Messages', 'CannotFindDest', 'Could not determine the destination folder.'),
       mtError,
       [mbOK],
       0
@@ -2981,9 +2981,9 @@ begin
   if ReplacingOther then
   begin
     if MessageDlg(
-      'Ya existe "' + ExtractFileName(TargetPath) + '".' +
+      LanguageText('Messages', 'AlreadyExistsStart', 'A file named "') + ExtractFileName(TargetPath) + '".' +
       LineEnding +
-      'Â¿Quieres reemplazarlo?',
+      LanguageText('Messages', 'ReplaceFileMojibake', 'Do you want to replace it?'),
       mtConfirmation,
       [mbYes, mbNo],
       0
@@ -2998,7 +2998,7 @@ begin
   if AdapterName = '' then
   begin
     MessageDlg(
-      'Selecciona un adaptador de red.',
+      LanguageText('Messages', 'ChooseAdapter', 'Select a network adapter.'),
       mtInformation,
       [mbOK],
       0
@@ -3059,7 +3059,7 @@ begin
       Output.SaveToFile(TargetPath);
     except
       MessageDlg(
-        'No se pudo guardar el script.',
+        LanguageText('Messages', 'CannotSaveScript', 'Could not save the script.'),
         mtError,
         [mbOK],
         0
@@ -3082,10 +3082,10 @@ begin
       (not DeleteFile(SourcePath)) then
     begin
       MessageDlg(
-        'El nuevo script se guardo correctamente, pero no se pudo eliminar ' +
-        'el archivo con el nombre anterior.' +
+        LanguageText('Messages', 'SavedNewOldNotRemoved1', 'The new script was saved, but the previous') + ' ' +
+        LanguageText('Messages', 'SavedNewOldNotRemoved2', 'file could not be deleted.') +
         LineEnding +
-        'Revisa ambos archivos antes de continuar.',
+        LanguageText('Messages', 'ReviewBoth', 'Check both files before continuing.'),
         mtWarning,
         [mbOK],
         0
@@ -3100,7 +3100,7 @@ begin
     LoadScriptConfiguration(TargetPath);
 
   UpdateValidationUI;
-  StatusLabel.Caption := 'Guardado: ' + ExtractFileName(TargetPath);
+  StatusLabel.Caption := LanguageText('Messages', 'Saved', 'Saved:') + ' ' + ExtractFileName(TargetPath);
 end;
 function TForm1.DhcpAlreadyConfigured: Boolean;
 const
@@ -3184,7 +3184,7 @@ begin
 
   if AConfig.AdapterName = '' then
   begin
-    AError := 'No hay un adaptador de red seleccionado.';
+    AError := LanguageText('Messages', 'NoAdapterSelected', 'No network adapter is selected.');
     Exit;
   end;
   { DHCP solo esta ya aplicado cuando el estado activo y el guardado
@@ -3253,14 +3253,14 @@ begin
       if not Result then
       begin
         if AError = '' then
-          AError := 'netsh fallo sin devolver un mensaje.';
+          AError := LanguageText('Messages', 'NetshFailed', 'netsh failed without an error message.');
 
         AError := AError +
           LineEnding +
           LineEnding +
-          'Modo: elevacion UAC externa.' +
+          LanguageText('Messages', 'UacMode', 'Mode: external UAC elevation.') +
           LineEnding +
-          'Comando: ' + CommandText;
+          LanguageText('Messages', 'CommandLabel', 'Command:') + ' ' + CommandText;
       end;
 
       Exit;
@@ -3269,7 +3269,7 @@ begin
     NetshPath := LaguNETbiNetshPath;
     if (NetshPath = '') or not FileExists(NetshPath) then
     begin
-      AError := 'No se encontro netsh.exe en System32.';
+      AError := LanguageText('Messages', 'NoNetshInSystem32', 'netsh.exe was not found in System32.');
       Exit;
     end;
 
@@ -3291,10 +3291,10 @@ begin
         on E: Exception do
         begin
           AError :=
-            'No se pudo iniciar netsh.exe: ' + E.Message +
+            LanguageText('Messages', 'CannotStartNetsh', 'Could not start netsh.exe:') + ' ' + E.Message +
             LineEnding +
             LineEnding +
-            'Comando: ' + CommandText;
+            LanguageText('Messages', 'CommandLabel', 'Command:') + ' ' + CommandText;
           Exit;
         end;
       end;
@@ -3307,7 +3307,7 @@ begin
       except
         on E: Exception do
           NetshOutput :=
-            '[No se pudo leer la salida: ' + E.Message + ']';
+            LanguageText('Messages', 'CannotReadOutput', '[Could not read output:') + ' ' + E.Message + ']';
       end;
 
       NetshOutput := StringReplace(
@@ -3329,26 +3329,26 @@ begin
           Exit;
         end;
         AError :=
-          'netsh.exe devolvio el codigo ' +
+          LanguageText('Messages', 'NetshExitCode', 'netsh.exe returned exit code') + ' ' +
           IntToStr(ExitCode) + '.';
 
         if NetshOutput <> '' then
           AError := AError +
             LineEnding +
             LineEnding +
-            'Salida de netsh:' +
+            LanguageText('Messages', 'NetshOutput', 'netsh output:') +
             LineEnding +
             NetshOutput
         else
           AError := AError +
             LineEnding +
             LineEnding +
-            'netsh no devolvio texto por stdout/stderr.';
+            LanguageText('Messages', 'NetshNoStdout', 'netsh returned no text on stdout/stderr.');
 
         AError := AError +
           LineEnding +
           LineEnding +
-          'Comando:' +
+          LanguageText('Messages', 'CommandLabelPlain', 'Command:') +
           LineEnding +
           CommandText;
 
@@ -3364,20 +3364,20 @@ begin
          (Pos('acceso denegado', LowerOutput) > 0) then
       begin
         AError :=
-          'netsh no pudo aplicar la configuracion.';
+          LanguageText('Messages', 'NetshApplyFailed', 'netsh could not apply the configuration.');
 
         if NetshOutput <> '' then
           AError := AError +
             LineEnding +
             LineEnding +
-            'Salida de netsh:' +
+            LanguageText('Messages', 'NetshOutput', 'netsh output:') +
             LineEnding +
             NetshOutput;
 
         AError := AError +
           LineEnding +
           LineEnding +
-          'Comando:' +
+          LanguageText('Messages', 'CommandLabelPlain', 'Command:') +
           LineEnding +
           CommandText;
 
@@ -3414,7 +3414,7 @@ begin
 
   if Trim(AConfig.WifiProfile) = '' then
   begin
-    AError := 'No hay un perfil Wi-Fi seleccionado.';
+    AError := LanguageText('Messages', 'NoWifiProfile', 'No Wi-Fi profile is selected.');
     Exit;
   end;
 
@@ -3439,12 +3439,12 @@ begin
       if not Result then
       begin
         if AError = '' then
-          AError := 'netsh fallo sin devolver un mensaje.';
+          AError := LanguageText('Messages', 'NetshFailed', 'netsh failed without an error message.');
 
         AError := AError +
           LineEnding +
           LineEnding +
-          'Comando:' +
+          LanguageText('Messages', 'CommandLabelPlain', 'Command:') +
           LineEnding +
           CommandText;
       end;
@@ -3456,7 +3456,7 @@ begin
 
     if (NetshPath = '') or not FileExists(NetshPath) then
     begin
-      AError := 'No se encontro netsh.exe en System32.';
+      AError := LanguageText('Messages', 'NoNetshInSystem32', 'netsh.exe was not found in System32.');
       Exit;
     end;
 
@@ -3472,11 +3472,11 @@ begin
         on E: Exception do
         begin
           AError :=
-            'No se pudo iniciar netsh.exe: ' +
+            LanguageText('Messages', 'CannotStartNetsh', 'Could not start netsh.exe:') + ' ' +
             E.Message +
             LineEnding +
             LineEnding +
-            'Comando:' +
+            LanguageText('Messages', 'CommandLabelPlain', 'Command:') +
             LineEnding +
             CommandText;
           Exit;
@@ -3488,12 +3488,12 @@ begin
       if ExitCode <> 0 then
       begin
         AError :=
-          'netsh.exe devolvio el codigo ' +
+          LanguageText('Messages', 'NetshExitCode', 'netsh.exe returned exit code') + ' ' +
           IntToStr(ExitCode) +
           '.' +
           LineEnding +
           LineEnding +
-          'Comando:' +
+          LanguageText('Messages', 'CommandLabelPlain', 'Command:') +
           LineEnding +
           CommandText;
         Exit;
@@ -3579,7 +3579,7 @@ begin
   PingProgress.Visible := True;
 
   StatusLabel.Font.Color := TColor(7760478);
-  StatusLabel.Caption := 'Comprobando equipo...';
+  StatusLabel.Caption := LanguageText('Messages', 'PingChecking', 'Checking host...');
 
   FPingThread := TPingThread.Create(Self, ATarget, PingTimeoutSeconds);
   FPingThread.Start;
@@ -3590,11 +3590,44 @@ begin
   if AAttempt <= PingProgress.Max then
     PingProgress.Position := AAttempt;
   StatusLabel.Font.Color := TColor(7760478);
-  StatusLabel.Caption := Format('Comprobando equipo... intento %d',
+  StatusLabel.Caption := LanguageFormat('Messages', 'PingAttempt', 'Checking host... attempt %d',
     [AAttempt]);
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then
     FQuickForm.SetPingProgress(AAttempt, AReplies);
+end;
+
+function LaguNETbiTranslateWorkerError(const AError: String): String;
+var
+  S: String;
+begin
+  Result := AError;
+  if AError = '' then Exit;
+  S := AError;
+  if S = 'Operacion cancelada: no se concedieron permisos.' then
+    Result := LanguageText('Messages', 'WorkerCancelled',
+      'Operation cancelled: permission was not granted.')
+  else if S = 'Windows ejecuto el BAT pero no devolvio el proceso.' then
+    Result := LanguageText('Messages', 'WorkerNoProcess',
+      'Windows launched the BAT but did not return a process handle.')
+  else if S = 'No se pudo obtener el codigo de salida del BAT.' then
+    Result := LanguageText('Messages', 'WorkerNoExitCode',
+      'Could not get the BAT exit code.')
+  else if S = 'Destino IPv4 invalido.' then
+    Result := LanguageText('Messages', 'WorkerInvalidIPv4',
+      'Invalid IPv4 destination.')
+  else if Pos('Windows no pudo ejecutar el BAT. ', S) = 1 then
+    Result := LanguageText('Messages', 'WorkerCannotRunBat',
+      'Windows could not execute the BAT file.') + ' ' +
+      Copy(S, Length('Windows no pudo ejecutar el BAT. ') + 1, MaxInt)
+  else if Pos('No se pudo iniciar ICMP: ', S) = 1 then
+    Result := LanguageText('Messages', 'WorkerCannotInitIcmp',
+      'Could not initialize ICMP:') + ' ' +
+      Copy(S, Length('No se pudo iniciar ICMP: ') + 1, MaxInt)
+  else if Pos('No se pudo leer el BAT: ', S) = 1 then
+    Result := LanguageText('Messages', 'CannotReadBatPrefix',
+      'Could not read the BAT file:') + ' ' +
+      Copy(S, Length('No se pudo leer el BAT: ') + 1, MaxInt);
 end;
 
 procedure TForm1.PingThreadFinished(
@@ -3624,7 +3657,8 @@ begin
   if AError <> '' then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := 'PING NOK - error: ' + AError;
+    StatusLabel.Caption := LanguageText('Messages', 'PingErrorPrefix',
+      'PING failed - error:') + ' ' + LaguNETbiTranslateWorkerError(AError);
     if FApplyFromQuickMenu then
       ShowTrayNotification('PING NOK', True);
   end
@@ -3681,8 +3715,8 @@ var
   procedure InvalidLine(ALine: Integer; const AText: String);
   begin
     AError :=
-      'Linea ' + IntToStr(ALine) +
-      ' no permitida:' + LineEnding +
+      LanguageText('Messages', 'InvalidBatLinePrefix', 'Line') + ' ' + IntToStr(ALine) +
+      ' ' + LanguageText('Messages', 'InvalidBatLineSuffix', 'not allowed:') + LineEnding +
       AText;
   end;
 
@@ -3715,7 +3749,7 @@ begin
 
   if not Assigned(ALines) then
   begin
-    AError := 'No hay contenido BAT para validar.';
+    AError := LanguageText('Messages', 'NoBatContents', 'There is no BAT content to validate.');
     Exit;
   end;
 
@@ -3775,13 +3809,13 @@ begin
 
   if not FileExists(AFileName) then
   begin
-    AError := 'El BAT no existe.';
+    AError := LanguageText('Messages', 'BatMissing', 'The BAT file does not exist.');
     Exit;
   end;
 
   if not SameText(ExtractFileExt(AFileName), '.bat') then
   begin
-    AError := 'Solo se permite ejecutar archivos .bat.';
+    AError := LanguageText('Messages', 'OnlyBatAllowed', 'Only .bat files can be executed.');
     Exit;
   end;
 
@@ -3792,7 +3826,7 @@ begin
     except
       on E: Exception do
       begin
-        AError := 'No se pudo leer el BAT: ' + E.Message;
+        AError := LanguageText('Messages', 'CannotReadBatPrefix', 'Could not read the BAT file:') + ' ' + E.Message;
         Exit;
       end;
     end;
@@ -3814,10 +3848,10 @@ begin
   if AError <> '' then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := AError;
+    StatusLabel.Caption := LaguNETbiTranslateWorkerError(AError);
 
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Error en la operación', True);
+      ShowTrayNotification(LanguageText('Messages', 'OperationError', 'Operation failed'), True);
 
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.FinishExecution(StatusLabel.Caption);
@@ -3829,14 +3863,14 @@ begin
   if (AExitCode = 0) and AUsePing and IsValidIPv4(APingTarget) then
   begin
     StatusLabel.Font.Color := TColor(7760478);
-    StatusLabel.Caption := 'BAT ejecutado. Comprobando conexion...';
+    StatusLabel.Caption := LanguageText('Messages', 'BatChecking', 'BAT executed. Checking connection...');
 
     if FApplyFromQuickMenu and Assigned(FQuickForm) then
       FQuickForm.SetIPv4Done;
 
     { El BAT termino bien; la conectividad se notificara aparte. }
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Operación completada', False);
+      ShowTrayNotification(LanguageText('Messages', 'OperationCompleted', 'Operation completed'), False);
 
     StartPingTest(APingTarget);
     Exit;
@@ -3845,19 +3879,19 @@ begin
   if AExitCode = 0 then
   begin
     StatusLabel.Font.Color := TColor(7760478);
-    StatusLabel.Caption := 'BAT ejecutado correctamente.';
+    StatusLabel.Caption := LanguageText('Messages', 'BatExecuted', 'BAT executed successfully.');
 
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Operación completada', False);
+      ShowTrayNotification(LanguageText('Messages', 'OperationCompleted', 'Operation completed'), False);
   end
   else
   begin
     StatusLabel.Font.Color := clRed;
     StatusLabel.Caption :=
-      'BAT finalizado con codigo ' + IntToStr(AExitCode) + '.';
+      LanguageText('Messages', 'BatExitCode', 'BAT finished with exit code') + ' ' + IntToStr(AExitCode) + '.';
 
     if FApplyFromQuickMenu then
-      ShowTrayNotification('Error en la operación', True);
+      ShowTrayNotification(LanguageText('Messages', 'OperationError', 'Operation failed'), True);
   end;
 
   if FApplyFromQuickMenu and Assigned(FQuickForm) then
@@ -3880,10 +3914,10 @@ begin
   if not ValidateBatchForExecution(AFileName, ValidationError) then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := 'BAT no valido. No se ha ejecutado nada.';
+    StatusLabel.Caption := LanguageText('Messages', 'BatInvalid', 'Invalid BAT. Nothing was executed.');
 
     MessageDlg(
-      'BAT no valido',
+      LanguageText('Messages', 'BatInvalidTitle', 'Invalid BAT'),
       ValidationError,
       mtWarning,
       [mbOK],
@@ -3912,7 +3946,7 @@ begin
     );
 
   StatusLabel.Font.Color := TColor(7760478);
-  StatusLabel.Caption := 'Ejecutando BAT validado...';
+  StatusLabel.Caption := LanguageText('Messages', 'BatRunning', 'Executing validated BAT...');
 
   FBatchThread := TBatchThread.Create(
     Self,
@@ -3936,7 +3970,7 @@ begin
 
   if Assigned(FBatchThread) then
   begin
-    StatusLabel.Caption := 'Hay un BAT en ejecucion. Espera a que termine.';
+    StatusLabel.Caption := LanguageText('Messages', 'BatAlreadyRunning', 'A BAT is running. Wait for it to finish.');
     Exit;
   end;
 
@@ -3949,14 +3983,14 @@ begin
 
   if not Validation.ConfigOK then
   begin
-    StatusLabel.Caption := 'Configuracion no valida. No se ha aplicado nada.';
+    StatusLabel.Caption := LanguageText('Messages', 'InvalidConfig', 'Invalid configuration. Nothing was applied.');
     Exit;
   end;
 
   ApplyButton.Enabled := False;
   Screen.Cursor := crHourGlass;
   StatusLabel.Font.Color := TColor(7760478);
-  StatusLabel.Caption := 'Aplicando configuracion IPv4...';
+  StatusLabel.Caption := LanguageText('Messages', 'ApplyingIPv4', 'Applying IPv4 configuration...');
   Application.ProcessMessages;
 
   try
@@ -3968,10 +4002,10 @@ begin
   if not IPv4OK then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := 'Error al aplicar configuracion IPv4.';
+    StatusLabel.Caption := LanguageText('Messages', 'ApplyIPv4Error', 'Error applying IPv4 configuration.');
 
     MessageDlg(
-      'Diagnostico netsh',
+      LanguageText('Messages', 'NetshDiagnostics', 'netsh diagnostics'),
       ErrorText,
       mtError,
       [mbOK],
@@ -3986,7 +4020,7 @@ begin
   begin
     Screen.Cursor := crHourGlass;
     StatusLabel.Font.Color := TColor(7760478);
-    StatusLabel.Caption := 'Conectando Wi-Fi...';
+    StatusLabel.Caption := LanguageText('Messages', 'ConnectingWifi', 'Connecting to Wi-Fi...');
     Application.ProcessMessages;
 
     try
@@ -3998,10 +4032,10 @@ begin
     if not WifiOK then
     begin
       StatusLabel.Font.Color := clRed;
-      StatusLabel.Caption := 'Error al conectar Wi-Fi.';
+      StatusLabel.Caption := LanguageText('Messages', 'ConnectWifiError', 'Error connecting to Wi-Fi.');
 
       MessageDlg(
-        'Diagnostico netsh',
+        LanguageText('Messages', 'NetshDiagnostics', 'netsh diagnostics'),
         ErrorText,
         mtError,
         [mbOK],
@@ -4023,14 +4057,14 @@ begin
 
   if Config.WifiSupported and Config.UseWifi then
     StatusLabel.Caption :=
-      'Configuracion aplicada a ' +
+      LanguageText('Messages', 'AppliedWifiPrefix', 'Configuration applied to') + ' ' +
       Config.AdapterName +
-      '. Wi-Fi: ' +
+      LanguageText('Messages', 'AppliedWifiMiddle', '. Wi-Fi:') + ' ' +
       Config.WifiProfile +
       '.'
   else
     StatusLabel.Caption :=
-      'Configuracion IPv4 aplicada a ' +
+      LanguageText('Messages', 'AppliedIPv4Prefix', 'IPv4 configuration applied to') + ' ' +
       Config.AdapterName +
       '.';
 
@@ -4116,6 +4150,12 @@ begin
   FEditScriptMenuItem.Caption := LanguageText('Tray', 'Edit', 'Edit BAT');
   FOpenLocationMenuItem.Caption := LanguageText('Tray', 'Location', 'Open location');
 
+  { No sobrescribir los nombres de los BAT seleccionados al cambiar idioma. }
+  if IsFolderNode(ScriptTree.Selected) then
+    PreviewLabel.Caption := LanguageText('Messages', 'NewBat', 'New BAT')
+  else if not IsScriptNode(ScriptTree.Selected) then
+    PreviewLabel.Caption := LanguageText('Messages', 'NoBatSelected',
+      'No BAT selected');
 end;
 
 procedure TForm1.SettingsLanguageChanged(Sender: TObject);
