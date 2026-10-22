@@ -10,10 +10,13 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, Unit1, uWindowsSupport
+  Forms, SysUtils, LCLTranslator, Unit1, uWindowsSupport, uLanguage
   { you can add units after this };
 
 {$R *.res}
+
+var
+  Locale: String;
 
 begin
   if (ParamCount = 1) and
@@ -43,6 +46,12 @@ begin
   Application.MainFormOnTaskbar:=True;
   {$POP}
   Application.Initialize;
+  { Inicializar antes de crear formularios: primera carga nativa. }
+  LanguageInitialize;
+  Locale := LanguageDesiredCode;
+  SetDefaultLang(Locale,
+    IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'lang',
+    'LaguNETbi');
   { El formulario principal existe, pero solo aparece si lo solicita el usuario. }
   Application.ShowMainForm := False;
   Application.CreateForm(TForm1, Form1);

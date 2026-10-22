@@ -1,0 +1,557 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+#: tsettingsform.subtitlelabel.caption
+msgid "Quick network configuration for Windows"
+msgstr "Quick network configuration for Windows"
+
+#: tform1.profileslabel.caption
+msgid "Profiles"
+msgstr "Profiles"
+
+#: tform1.profiletitle.caption
+msgid "Profile"
+msgstr "Profile"
+
+#: tform1.descriptionlabel.caption
+msgid "Description"
+msgstr "Description"
+
+#: tform1.adapterlabel.caption
+msgid "Network adapter"
+msgstr "Network adapter"
+
+#: tform1.readcurrentbutton.caption
+msgid "Read current"
+msgstr "Read current"
+
+#: tform1.automaticbox.caption
+msgid "Obtain an IP address automatically (DHCP)"
+msgstr "Obtain an IP address automatically (DHCP)"
+
+#: tform1.virtualfilterbox.caption
+msgid "Show virtual adapters"
+msgstr "Show virtual adapters"
+
+#: tform1.addresslabel.caption
+msgid "IP address"
+msgstr "IP address"
+
+#: tform1.masklabel.caption
+msgid "Subnet mask"
+msgstr "Subnet mask"
+
+#: tform1.gatewaylabel.caption
+msgid "Default gateway"
+msgstr "Default gateway"
+
+#: tform1.wifibox.caption
+msgid "Connect Wi-Fi"
+msgstr "Connect Wi-Fi"
+
+#: tform1.pingbox.caption
+msgid "Check connection (PING)"
+msgstr "Check connection (PING)"
+
+#: tform1.applybutton.caption
+msgid "Apply"
+msgstr "Apply"
+
+#: tform1.savebutton.caption
+msgid "Save"
+msgstr "Save"
+
+#: tform1.batcontentlabel.caption
+msgid "BAT contents"
+msgstr "BAT contents"
+
+#: tform1.helpbutton.hint
+msgid "Help and settings"
+msgstr "Help and settings"
+
+#: unit1.sloc_messages_selectscript
+msgid "Select a script."
+msgstr "Select a script."
+
+#: tform1.versionlabel.caption
+msgid "Version 2.0 - Update 36"
+msgstr "Version 2.0 - Update 36"
+
+#: tform1.showmenuitem.caption
+msgid "Open LaguNETbi"
+msgstr "Open LaguNETbi"
+
+#: tform1.hidemenuitem.caption
+msgid "Hide LaguNETbi"
+msgstr "Hide LaguNETbi"
+
+#: tform1.exitmenuitem.caption
+msgid "Exit"
+msgstr "Exit"
+
+#: tsettingsform.caption
+msgid "Help / Settings"
+msgstr "Help / Settings"
+
+#: tsettingsform.introlabel.caption
+msgid "Designed for frequent network changes without allowing arbitrary commands."
+msgstr "Designed for frequent network changes without allowing arbitrary commands."
+
+#: tsettingsform.settingsgroup.caption
+msgid " Settings "
+msgstr " Settings "
+
+#: tsettingsform.startupcheck.caption
+msgid "Start with Windows as administrator"
+msgstr "Start with Windows as administrator"
+
+#: tsettingsform.showbatcontentcheck.caption
+msgid "Show BAT contents"
+msgstr "Show BAT contents"
+
+#: tsettingsform.creditsgroup.caption
+msgid " About / Credits "
+msgstr " About / Credits "
+
+#: tsettingsform.creditslabel.caption
+msgid "LaguNETbi: rewritten using Lazarus / Free Pascal. Based on the original LaguNET. Open-source project."
+msgstr "LaguNETbi: rewritten using Lazarus / Free Pascal. Based on the original LaguNET. Open-source project."
+
+#: tsettingsform.repositorybutton.caption
+msgid "Open GitHub"
+msgstr "Open GitHub"
+
+#: tsettingsform.closebutton.caption
+msgid "Close"
+msgstr "Close"
+
+#: tsettingsform.languagelabel.caption
+msgid "Interface language"
+msgstr "Interface language"
+
+#: tsettingsform.languagesearchbutton.caption
+msgid "Search languages"
+msgstr "Search languages"
+
+#: unit1.sloc_messages_pingattempt
+msgid "Checking host... attempt %d"
+msgstr "Checking host... attempt %d"
+
+#: unit1.sloc_main_countmany
+msgid "%d scripts"
+msgstr "%d scripts"
+
+#: unit1.sloc_messages_nobatselected
+msgid "No BAT selected"
+msgstr "No BAT selected"
+
+#: unit1.sloc_messages_newbat
+msgid "New BAT"
+msgstr "New BAT"
+
+#: unit1.sloc_messages_appliedipv4prefix
+msgid "IPv4 configuration applied to"
+msgstr "IPv4 configuration applied to"
+
+#: unit1.sloc_messages_appliedwifimiddle
+msgid ". Wi-Fi:"
+msgstr ". Wi-Fi:"
+
+#: unit1.sloc_messages_appliedwifiprefix
+msgid "Configuration applied to"
+msgstr "Configuration applied to"
+
+#: unit1.sloc_messages_netshdiagnostics
+msgid "netsh diagnostics"
+msgstr "netsh diagnostics"
+
+#: unit1.sloc_messages_connectwifierror
+msgid "Error connecting to Wi-Fi."
+msgstr "Error connecting to Wi-Fi."
+
+#: unit1.sloc_messages_connectingwifi
+msgid "Connecting to Wi-Fi..."
+msgstr "Connecting to Wi-Fi..."
+
+#: unit1.sloc_messages_applyipv4error
+msgid "Error applying IPv4 configuration."
+msgstr "Error applying IPv4 configuration."
+
+#: unit1.sloc_messages_applyingipv4
+msgid "Applying IPv4 configuration..."
+msgstr "Applying IPv4 configuration..."
+
+#: unit1.sloc_messages_invalidconfig
+msgid "Invalid configuration. Nothing was applied."
+msgstr "Invalid configuration. Nothing was applied."
+
+#: unit1.sloc_messages_batalreadyrunning
+msgid "A BAT is running. Wait for it to finish."
+msgstr "A BAT is running. Wait for it to finish."
+
+#: unit1.sloc_messages_batrunning
+msgid "Executing validated BAT..."
+msgstr "Executing validated BAT..."
+
+#: unit1.sloc_messages_batinvalidtitle
+msgid "Invalid BAT"
+msgstr "Invalid BAT"
+
+#: unit1.sloc_messages_operationerror
+msgid "Operation failed"
+msgstr "Operation failed"
+
+#: unit1.sloc_messages_batexitcode
+msgid "BAT finished with exit code"
+msgstr "BAT finished with exit code"
+
+#: unit1.sloc_messages_operationcompleted
+msgid "Operation completed"
+msgstr "Operation completed"
+
+#: unit1.sloc_messages_batexecuted
+msgid "BAT executed successfully."
+msgstr "BAT executed successfully."
+
+#: unit1.sloc_messages_batchecking
+msgid "BAT executed. Checking connection..."
+msgstr "BAT executed. Checking connection..."
+
+#: unit1.sloc_messages_cannotreadbatprefix
+msgid "Could not read the BAT file:"
+msgstr "Could not read the BAT file:"
+
+#: unit1.sloc_messages_onlybatallowed
+msgid "Only .bat files can be executed."
+msgstr "Only .bat files can be executed."
+
+#: unit1.sloc_messages_batmissing
+msgid "The BAT file does not exist."
+msgstr "The BAT file does not exist."
+
+#: unit1.sloc_messages_nobatcontents
+msgid "There is no BAT content to validate."
+msgstr "There is no BAT content to validate."
+
+#: unit1.sloc_messages_invalidbatlinesuffix
+msgid "not allowed:"
+msgstr "not allowed:"
+
+#: unit1.sloc_messages_invalidbatlineprefix
+msgid "Line"
+msgstr "Line"
+
+#: unit1.sloc_messages_pingerrorprefix
+msgid "PING failed - error:"
+msgstr "PING failed - error:"
+
+#: unit1.sloc_messages_workercannotiniticmp
+msgid "Could not initialize ICMP:"
+msgstr "Could not initialize ICMP:"
+
+#: unit1.sloc_messages_workercannotrunbat
+msgid "Windows could not execute the BAT file."
+msgstr "Windows could not execute the BAT file."
+
+#: unit1.sloc_messages_workerinvalidipv4
+msgid "Invalid IPv4 destination."
+msgstr "Invalid IPv4 destination."
+
+#: unit1.sloc_messages_workernoexitcode
+msgid "Could not get the BAT exit code."
+msgstr "Could not get the BAT exit code."
+
+#: unit1.sloc_messages_workernoprocess
+msgid "Windows launched the BAT but did not return a process handle."
+msgstr "Windows launched the BAT but did not return a process handle."
+
+#: unit1.sloc_messages_workercancelled
+msgid "Operation cancelled: permission was not granted."
+msgstr "Operation cancelled: permission was not granted."
+
+#: unit1.sloc_messages_pingchecking
+msgid "Checking host..."
+msgstr "Checking host..."
+
+#: unit1.sloc_messages_commandlabelplain
+msgid "Command:"
+msgstr "Command:"
+
+#: unit1.sloc_messages_netshexitcode
+msgid "netsh.exe returned exit code"
+msgstr "netsh.exe returned exit code"
+
+#: unit1.sloc_messages_cannotstartnetsh
+msgid "Could not start netsh.exe:"
+msgstr "Could not start netsh.exe:"
+
+#: unit1.sloc_messages_nonetshinsystem32
+msgid "netsh.exe was not found in System32."
+msgstr "netsh.exe was not found in System32."
+
+#: unit1.sloc_messages_netshfailed
+msgid "netsh failed without an error message."
+msgstr "netsh failed without an error message."
+
+#: unit1.sloc_messages_nowifiprofile
+msgid "No Wi-Fi profile is selected."
+msgstr "No Wi-Fi profile is selected."
+
+#: unit1.sloc_messages_netshoutput
+msgid "netsh output:"
+msgstr "netsh output:"
+
+#: unit1.sloc_messages_netshapplyfailed
+msgid "netsh could not apply the configuration."
+msgstr "netsh could not apply the configuration."
+
+#: unit1.sloc_messages_netshnostdout
+msgid "netsh returned no text on stdout/stderr."
+msgstr "netsh returned no text on stdout/stderr."
+
+#: unit1.sloc_messages_cannotreadoutput
+msgid "[Could not read output:"
+msgstr "[Could not read output:"
+
+#: unit1.sloc_messages_uacmode
+msgid "Mode: external UAC elevation."
+msgstr "Mode: external UAC elevation."
+
+#: unit1.sloc_messages_noadapterselected
+msgid "No network adapter is selected."
+msgstr "No network adapter is selected."
+
+#: unit1.sloc_messages_saved
+msgid "Saved:"
+msgstr "Saved:"
+
+#: unit1.sloc_messages_reviewboth
+msgid "Check both files before continuing."
+msgstr "Check both files before continuing."
+
+#: unit1.sloc_messages_savednewoldnotremoved2
+msgid "file could not be deleted."
+msgstr "file could not be deleted."
+
+#: unit1.sloc_messages_savednewoldnotremoved1
+msgid "The new script was saved, but the previous"
+msgstr "The new script was saved, but the previous"
+
+#: unit1.sloc_messages_cannotsavescript
+msgid "Could not save the script."
+msgstr "Could not save the script."
+
+#: unit1.sloc_messages_chooseadapter
+msgid "Select a network adapter."
+msgstr "Select a network adapter."
+
+#: unit1.sloc_messages_replacefilemojibake
+msgid "Do you want to replace it?"
+msgstr "Do you want to replace it?"
+
+#: unit1.sloc_messages_alreadyexistsstart
+msgid "A file named \""
+msgstr "A file named \""
+
+#: unit1.sloc_messages_cannotfinddest
+msgid "Could not determine the destination folder."
+msgstr "Could not determine the destination folder."
+
+#: unit1.sloc_messages_selectscriptorfolder
+msgid "Select a script or folder."
+msgstr "Select a script or folder."
+
+#: unit1.sloc_messages_moved
+msgid "Moved:"
+msgstr "Moved:"
+
+#: unit1.sloc_messages_cannotmove
+msgid "Could not move the script."
+msgstr "Could not move the script."
+
+#: unit1.sloc_messages_cannotreplace
+msgid "Could not replace the destination file."
+msgstr "Could not replace the destination file."
+
+#: unit1.sloc_messages_alreadyexistsend
+msgid "\" already exists in that folder."
+msgstr "\" already exists in that folder."
+
+#: unit1.sloc_messages_droponfolder
+msgid "Drop onto a folder"
+msgstr "Drop onto a folder"
+
+#: unit1.sloc_messages_scriptalreadyin
+msgid "The script is already in"
+msgstr "The script is already in"
+
+#: unit1.sloc_messages_moveto
+msgid "Move"
+msgstr "Move"
+
+#: unit1.sloc_messages_scriptalreadyatroot
+msgid "The script is already in scripts"
+msgstr "The script is already in scripts"
+
+#: unit1.sloc_messages_movehint
+msgid "Move:"
+msgstr "Move:"
+
+#: unit1.sloc_messages_newscriptin
+msgid "New script in:"
+msgstr "New script in:"
+
+#: unit1.sloc_messages_scriptloaded
+msgid "Script loaded:"
+msgstr "Script loaded:"
+
+#: unit1.sloc_main_countone
+msgid "1 script"
+msgstr "1 script"
+
+#: unit1.sloc_messages_cannotreadfile
+msgid "Could not read"
+msgstr "Could not read"
+
+#: unit1.sloc_messages_adapterlistchanged
+msgid "The adapter list changed while reading it."
+msgstr "The adapter list changed while reading it."
+
+#: unit1.sloc_messages_noipv4address
+msgid "(no IPv4 address)"
+msgstr "(no IPv4 address)"
+
+#: unit1.sloc_messages_dhcpwithoutaddress
+msgid "(DHCP without an assigned address)"
+msgstr "(DHCP without an assigned address)"
+
+#: unit1.sloc_messages_adapterdisconnected
+msgid "(adapter disconnected)"
+msgstr "(adapter disconnected)"
+
+#: unit1.sloc_messages_readipv4from
+msgid "IPv4 read from"
+msgstr "IPv4 read from"
+
+#: unit1.sloc_messages_savedipv4from
+msgid "Saved IPv4 from"
+msgstr "Saved IPv4 from"
+
+#: unit1.sloc_messages_noipv4selected
+msgid "No IPv4 configuration was found for the selected adapter."
+msgstr "No IPv4 configuration was found for the selected adapter."
+
+#: unit1.sloc_messages_winipv4failed
+msgid "Windows could not retrieve the IPv4 configuration."
+msgstr "Windows could not retrieve the IPv4 configuration."
+
+#: unit1.sloc_messages_noadapteripv4info
+msgid "Windows returned no IPv4 information for the adapter."
+msgstr "Windows returned no IPv4 information for the adapter."
+
+#: unit1.sloc_messages_adapterwithoutid
+msgid "The selected adapter has no identifier."
+msgstr "The selected adapter has no identifier."
+
+#: unit1.sloc_messages_choosevalidadapter
+msgid "Select a valid network adapter."
+msgstr "Select a valid network adapter."
+
+#: unit1.sloc_messages_readipv4failed
+msgid "Could not read the IPv4 configuration."
+msgstr "Could not read the IPv4 configuration."
+
+#: unit1.sloc_messages_pingbusyonexit
+msgid "A ping is running. Wait for it to finish before exiting."
+msgstr "A ping is running. Wait for it to finish before exiting."
+
+#: unit1.sloc_messages_batbusyonexit
+msgid "A BAT is running. Wait for it to finish before exiting."
+msgstr "A BAT is running. Wait for it to finish before exiting."
+
+#: unit1.sloc_messages_iniwriteerror
+msgid "Could not create LaguNETbi.ini. Check folder permissions."
+msgstr "Could not create LaguNETbi.ini. Check folder permissions."
+
+#: usettingsform.sloc_messages_startupchangefailed
+msgid "Could not change Windows startup settings."
+msgstr "Could not change Windows startup settings."
+
+#: usettingsform.sloc_messages_startupapplying
+msgid "Applying..."
+msgstr "Applying..."
+
+#: usettingsform.sloc_settings_saveerror
+msgid "Could not save language preference."
+msgstr "Could not save language preference."
+
+#: usettingsform.sloc_settings_nolanguages
+msgid "No languages were found on GitHub."
+msgstr "No languages were found on GitHub."
+
+#: usettingsform.sloc_settings_downloadfailed
+msgid "Could not install the selected language."
+msgstr "Could not install the selected language."
+
+#: usettingsform.sloc_settings_searchfailed
+msgid "Could not retrieve languages from GitHub."
+msgstr "Could not retrieve languages from GitHub."
+
+#: usettingsform.sloc_settings_downloading
+msgid "Downloading..."
+msgstr "Downloading..."
+
+#: usettingsform.sloc_settings_searching
+msgid "Searching..."
+msgstr "Searching..."
+
+#: usettingsform.sloc_settings_automatic
+msgid "Automatic (Windows language)"
+msgstr "Automatic (Windows language)"
+
+#: usettingsform.sloc_settings_startupoffnormal
+msgid "Disabled for this copy. Network changes may request permission."
+msgstr "Disabled for this copy. Network changes may request permission."
+
+#: usettingsform.sloc_settings_startupoffadmin
+msgid "Disabled for this copy. Current privileges remain until exit."
+msgstr "Disabled for this copy. Current privileges remain until exit."
+
+#: usettingsform.sloc_settings_startupactivenormal
+msgid "Enabled for the next start. This session may still request permission."
+msgstr "Enabled for the next start. This session may still request permission."
+
+#: usettingsform.sloc_settings_startupactiveadmin
+msgid "Enabled. LaguNETbi is running with administrator privileges."
+msgstr "Enabled. LaguNETbi is running with administrator privileges."
+
+#: uquickform.sloc_quick_pingattempt
+msgid "Checking host... attempt %d"
+msgstr "Checking host... attempt %d"
+
+#: uquickform.sloc_quick_ipv4done
+msgid "BAT finished - checking host..."
+msgstr "BAT finished - checking host..."
+
+#: uquickform.sloc_quick_applying
+msgid "Applying:"
+msgstr "Applying:"
+
+#: uquickform.sloc_quick_empty
+msgid "(no BAT scripts)"
+msgstr "(no BAT scripts)"
+
+#: unit1.sloc_tray_execute
+msgid "Execute"
+msgstr "Execute"
+
+#: unit1.sloc_tray_edit
+msgid "Edit BAT"
+msgstr "Edit BAT"
+
+#: unit1.sloc_tray_location
+msgid "Open location"
+msgstr "Open location"
+

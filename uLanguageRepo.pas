@@ -37,7 +37,7 @@ function LanguageRepoLocalFile(const ACode: String): String;
 implementation
 
 uses
-  Windows, IniFiles, fpjson, jsonparser;
+  Windows, fpjson, jsonparser;
 
 const
   LANG_MAX_LIST = 262144;
@@ -142,31 +142,21 @@ begin
 end;
 
 function LanguageRepoValidName(const AName: String): Boolean;
-var
-  I: Integer;
+var I: Integer;
 begin
   Result := False;
-  if (Length(AName) < 9) or (Length(AName) > 120) or
-     (AName[4] <> '-') or
-     (not SameText(ExtractFileExt(AName), '.ini')) then
-    Exit;
-  for I := 1 to 3 do
-    if not (AName[I] in ['a'..'z']) then
-      Exit;
-  for I := 5 to Length(AName) - 4 do
-    if (Ord(AName[I]) < 32) or
-       (AName[I] in ['/', '\', ':', '*', '?', '"', '<', '>', '|']) then
-      Exit;
-  if Trim(Copy(AName, 5, Length(AName)-8)) = '' then
-    Exit;
+  if (Length(AName) <> 15) or
+     (Copy(AName, 1, 10) <> 'LaguNETbi.') or
+     (Copy(AName, 13, 3) <> '.po') then Exit;
+  for I := 11 to 12 do
+    if not (AName[I] in ['a'..'z']) then Exit;
   Result := True;
 end;
 
 function LanguageRepoCode(const AName: String): String;
 begin
   Result := '';
-  if LanguageRepoValidName(AName) then
-    Result := Copy(AName, 1, 3);
+  if LanguageRepoValidName(AName) then Result := Copy(AName, 11, 2);
 end;
 
 function LangDir: String;
@@ -184,7 +174,7 @@ begin
   Dir := LangDir;
   if not DirectoryExists(Dir) then
     Exit;
-  if SysUtils.FindFirst(IncludeTrailingPathDelimiter(Dir) + '*.ini',
+  if SysUtils.FindFirst(IncludeTrailingPathDelimiter(Dir) + 'LaguNETbi.*.po',
     faAnyFile, SR) <> 0 then
     Exit;
   try
@@ -247,7 +237,7 @@ var
   I: Integer;
   FileName, Code, Dir, Destination, Temp: String;
   Stream: TFileStream;
-  Ini: TIniFile;
+
 begin
   try
     if FAction = lraSearch then
@@ -300,16 +290,11 @@ begin
         finally
           Stream.Free;
         end;
-        Ini := TIniFile.Create(Temp);
-        try
-          if not SameText(Ini.ReadString('Language','Code',''), FCode) then
-            raise Exception.Create('Translation language code mismatch.');
-          if (not Ini.SectionExists('Main')) and
-             (not Ini.SectionExists('Settings')) then
-            raise Exception.Create('Invalid translation file.');
-        finally
-          Ini.Free;
-        end;
+        { Validation is limited to PO structure; LCLTranslator performs parsing. }
+        if (Pos('msgid "', Data) = 0) or
+           (Pos('msgstr "', Data) = 0) then
+          raise Exception.Create('Invalid PO translation file.');
+
         if Terminated then Exit;
         if not RenameFile(Temp, Destination) then
           raise Exception.Create('Cannot install translation file.');

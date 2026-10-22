@@ -53,6 +53,13 @@ implementation
 
 {$R *.lfm}
 
+resourcestring
+  SLoc_Quick_Applying = 'Applying:';
+  SLoc_Quick_Empty = '(no BAT scripts)';
+  SLoc_Quick_IPv4Done = 'BAT finished - checking host...';
+  SLoc_Quick_PingAttempt = 'Checking host... attempt %d';
+
+
 type
   { Acceso a las posiciones reales de scroll del TreeView de Lazarus.
     No crea controles nuevos ni interviene en su dibujo. }
@@ -269,7 +276,7 @@ begin
 
     if RootNode.Count = 0 then
       TreeScripts.Items.AddChild(RootNode,
-        LanguageText('Quick', 'Empty', '(no BAT scripts)'));
+        SLoc_Quick_Empty);
 
     RestoreTreeState(RootNode);
   finally
@@ -347,7 +354,7 @@ begin
 
   QuickProgress.Position := 0;
   QuickProgress.Visible := True;
-  StatusText.Caption := LanguageText('Quick', 'Applying', 'Applying:') + ' ' + AName;
+  StatusText.Caption := SLoc_Quick_Applying + ' ' + AName;
   StatusText.Visible := True;
 end;
 
@@ -356,15 +363,13 @@ begin
   QuickProgress.Position := 1;
 
   if QuickProgress.Max > 1 then
-    StatusText.Caption := LanguageText('Quick', 'IPv4Done',
-      'BAT finished - checking host...');
+    StatusText.Caption := SLoc_Quick_IPv4Done;
 end;
 
 procedure TQuickForm.SetPingProgress(AAttempt, AReplies: Integer);
 begin
   QuickProgress.Position := 1 + AAttempt;
-  StatusText.Caption := LanguageFormat('Quick', 'PingAttempt',
-    'Checking host... attempt %d', [AAttempt]);
+  StatusText.Caption := Format(SLoc_Quick_PingAttempt, [AAttempt]);
 end;
 procedure TQuickForm.FinishExecution(const AStatus: String);
 begin
