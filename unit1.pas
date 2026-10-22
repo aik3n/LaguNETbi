@@ -78,6 +78,18 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     PingTarget: String;
   end;
 
+  { Los hilos comunican causas, nunca mensajes destinados al usuario. }
+  TWorkerErrorKind = (
+    wekNone,
+    wekBatRead,
+    wekBatCancelled,
+    wekBatStart,
+    wekBatNoProcess,
+    wekBatExitCode,
+    wekInvalidIPv4,
+    wekIcmpInit
+  );
+
   { TForm1 }
 
   TForm1 = class(TForm)
@@ -164,7 +176,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FQueuedPingTarget: String;
     FBatchThread: TThread;
     FApplyFromQuickMenu: Boolean;
-FDraggedNode: TTreeNode;
+    FDraggedNode: TTreeNode;
     FContextNode: TTreeNode;
     FScriptMenu: TPopupMenu;
     FExecuteScriptMenuItem: TMenuItem;
@@ -221,23 +233,27 @@ FDraggedNode: TTreeNode;
     procedure CancelActivePing;
     procedure StartPingTest(const ATarget: String);
     procedure PingThreadProgress(AAttempt, AReplies: Integer);
-    procedure PingThreadFinished(AReplies: Integer; const AError: String;
+    procedure PingThreadFinished(AReplies: Integer;
+      AErrorKind: TWorkerErrorKind; const AError: String;
       ACancelled: Boolean);
     procedure ShowTrayNotification(const AText: String; AWarning: Boolean);
     procedure FinishApplyUI;
     function ValidateBatchLines(
       ALines: TStrings;
       out AError: String
-    ): Boolean;    function ValidateBatchForExecution(
+    ): Boolean;
+    function ValidateBatchForExecution(
       const AFileName: String;
       out AError: String
     ): Boolean;
     procedure BatchThreadFinished(
       AExitCode: DWORD;
+      AErrorKind: TWorkerErrorKind;
       const AError: String;
       AUsePing: Boolean;
       const APingTarget: String
-    );    procedure ExecuteScriptFromQuickMenu(const AFileName: String);
+    );
+    procedure ExecuteScriptFromQuickMenu(const AFileName: String);
     procedure UpdateValidationUI;
     procedure LoadScriptConfiguration(const AFileName: String);
     function NodeRelativePath(ANode: TTreeNode): String;
@@ -272,9 +288,6 @@ resourcestring
   SLoc_Tray_Execute = 'Execute';
   SLoc_Tray_Edit = 'Edit BAT';
   SLoc_Tray_Location = 'Open location';
-
-
-resourcestring
   SLoc_Main_CountMany = '%d scripts';
   SLoc_Main_CountOne = '1 script';
   SLoc_Messages_AdapterDisconnected = '(adapter disconnected)';
@@ -374,7 +387,8 @@ type
     FTimeoutSeconds: Integer;
     FAttempt: Integer;
     FReplies: Integer;
-    FError: String;
+    FErrorKind: TWorkerErrorKind;
+    FError: String; { Solo detalle tecnico, no texto de interfaz. }
     procedure SyncProgress;
     procedure SyncFinished;
   protected
@@ -391,7 +405,8 @@ type
     FUsePing: Boolean;
     FPingTarget: String;
     FExitCode: DWORD;
-    FError: String;
+    FErrorKind: TWorkerErrorKind;
+    FError: String; { Solo detalle tecnico, no texto de interfaz. }
     procedure SyncFinished;
   protected
     procedure Execute; override;
@@ -504,6 +519,7 @@ begin
   FUsePing := AUsePing;
   FPingTarget := APingTarget;
   FExitCode := 0;
+  FErrorKind := wekNone;
   FError := '';
 end;
 
@@ -512,6 +528,7 @@ begin
   if Assigned(FOwner) then
     FOwner.BatchThreadFinished(
       FExitCode,
+      FErrorKind,
       FError,
       FUsePing,
       FPingTarget
@@ -528,6 +545,7 @@ var
   HasPause: Boolean;
 begin
   FExitCode := 0;
+  FErrorKind := wekNone;
   FError := '';
 
   { La consola solo se muestra si el BAT espera entrada del usuario. }
@@ -546,7 +564,8 @@ begin
     except
       on E: Exception do
       begin
-        FError := 'No se pudo leer el BAT: ' + E.Message;
+        FErrorKind := wekBatRead;
+        FError := E.Message;
         Synchronize(@SyncFinished);
         Exit;
       end;
@@ -579,10 +598,12 @@ begin
     LastErr := GetLastError;
 
     if LastErr = ERROR_CANCELLED then
-      FError := 'Operacion cancelada: no se concedieron permisos.'
+      FErrorKind := wekBatCancelled
     else
-      FError := 'Windows no pudo ejecutar el BAT. ' +
-        SysErrorMessage(LastErr);
+    begin
+      FErrorKind := wekBatStart;
+      FError := SysErrorMessage(LastErr);
+    end;
 
     Synchronize(@SyncFinished);
     Exit;
@@ -591,7 +612,7 @@ begin
   try
     if SEI.hProcess = 0 then
     begin
-      FError := 'Windows ejecuto el BAT pero no devolvio el proceso.';
+      FErrorKind := wekBatNoProcess;
       Synchronize(@SyncFinished);
       Exit;
     end;
@@ -600,7 +621,7 @@ begin
 
     if not GetExitCodeProcess(SEI.hProcess, FExitCode) then
     begin
-      FError := 'No se pudo obtener el codigo de salida del BAT.';
+      FErrorKind := wekBatExitCode;
       FExitCode := 0;
     end;
   finally
@@ -661,7 +682,7 @@ end;
 procedure TPingThread.SyncFinished;
 begin
   if Assigned(FOwner) then
-    FOwner.PingThreadFinished(FReplies, FError, Terminated);
+    FOwner.PingThreadFinished(FReplies, FErrorKind, FError, Terminated);
 end;
 
 procedure TPingThread.Execute;
@@ -678,6 +699,7 @@ var
   ReplyCount: DWORD;
 begin
   FReplies := 0;
+  FErrorKind := wekNone;
   FError := '';
   Address := 0;
 
@@ -689,7 +711,7 @@ begin
     Parts.DelimitedText := FTarget;
     if Parts.Count <> 4 then
     begin
-      FError := 'Destino IPv4 invalido.';
+      FErrorKind := wekInvalidIPv4;
       Synchronize(@SyncFinished);
       Exit;
     end;
@@ -698,7 +720,7 @@ begin
       if (not TryStrToInt(Parts[I], Octet)) or
          (Octet < 0) or (Octet > 255) then
       begin
-        FError := 'Destino IPv4 invalido.';
+        FErrorKind := wekInvalidIPv4;
         Synchronize(@SyncFinished);
         Exit;
       end;
@@ -711,7 +733,8 @@ begin
   EchoHandle := LaguNETbiIcmpCreateFile;
   if EchoHandle = INVALID_HANDLE_VALUE then
   begin
-    FError := 'No se pudo iniciar ICMP: ' + SysErrorMessage(GetLastError);
+    FErrorKind := wekIcmpInit;
+    FError := SysErrorMessage(GetLastError);
     Synchronize(@SyncFinished);
     Exit;
   end;
@@ -3693,34 +3716,26 @@ begin
     FQuickForm.SetPingProgress(AAttempt, AReplies);
 end;
 
-function LaguNETbiTranslateWorkerError(const AError: String): String;
-var
-  S: String;
+function LaguNETbiWorkerErrorText(AKind: TWorkerErrorKind;
+  const ADetail: String): String;
 begin
-  Result := AError;
-  if AError = '' then Exit;
-  S := AError;
-  if S = 'Operacion cancelada: no se concedieron permisos.' then
-    Result := SLoc_Messages_WorkerCancelled
-  else if S = 'Windows ejecuto el BAT pero no devolvio el proceso.' then
-    Result := SLoc_Messages_WorkerNoProcess
-  else if S = 'No se pudo obtener el codigo de salida del BAT.' then
-    Result := SLoc_Messages_WorkerNoExitCode
-  else if S = 'Destino IPv4 invalido.' then
-    Result := SLoc_Messages_WorkerInvalidIPv4
-  else if Pos('Windows no pudo ejecutar el BAT. ', S) = 1 then
-    Result := SLoc_Messages_WorkerCannotRunBat + ' ' +
-      Copy(S, Length('Windows no pudo ejecutar el BAT. ') + 1, MaxInt)
-  else if Pos('No se pudo iniciar ICMP: ', S) = 1 then
-    Result := SLoc_Messages_WorkerCannotInitIcmp + ' ' +
-      Copy(S, Length('No se pudo iniciar ICMP: ') + 1, MaxInt)
-  else if Pos('No se pudo leer el BAT: ', S) = 1 then
-    Result := SLoc_Messages_CannotReadBatPrefix + ' ' +
-      Copy(S, Length('No se pudo leer el BAT: ') + 1, MaxInt);
+  case AKind of
+    wekBatRead: Result := SLoc_Messages_CannotReadBatPrefix;
+    wekBatCancelled: Result := SLoc_Messages_WorkerCancelled;
+    wekBatStart: Result := SLoc_Messages_WorkerCannotRunBat;
+    wekBatNoProcess: Result := SLoc_Messages_WorkerNoProcess;
+    wekBatExitCode: Result := SLoc_Messages_WorkerNoExitCode;
+    wekInvalidIPv4: Result := SLoc_Messages_WorkerInvalidIPv4;
+    wekIcmpInit: Result := SLoc_Messages_WorkerCannotInitIcmp;
+    else Result := ADetail;
+  end;
+  if (AKind <> wekNone) and (ADetail <> '') then
+    Result := Result + ' ' + ADetail;
 end;
 
 procedure TForm1.PingThreadFinished(
-  AReplies: Integer; const AError: String; ACancelled: Boolean
+  AReplies: Integer; AErrorKind: TWorkerErrorKind;
+  const AError: String; ACancelled: Boolean
 );
 var
   NextTarget: String;
@@ -3743,10 +3758,11 @@ begin
   PingProgress.Position := 0;
   PingProgress.Visible := False;
 
-  if AError <> '' then
+  if AErrorKind <> wekNone then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := SLoc_Messages_PingErrorPrefix + ' ' + LaguNETbiTranslateWorkerError(AError);
+    StatusLabel.Caption := SLoc_Messages_PingErrorPrefix + ' ' +
+      LaguNETbiWorkerErrorText(AErrorKind, AError);
     if FApplyFromQuickMenu then
       ShowTrayNotification('PING NOK', True);
   end
@@ -3926,6 +3942,7 @@ begin
 end;
 procedure TForm1.BatchThreadFinished(
   AExitCode: DWORD;
+  AErrorKind: TWorkerErrorKind;
   const AError: String;
   AUsePing: Boolean;
   const APingTarget: String
@@ -3933,10 +3950,10 @@ procedure TForm1.BatchThreadFinished(
 begin
   FBatchThread := nil;
 
-  if AError <> '' then
+  if AErrorKind <> wekNone then
   begin
     StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := LaguNETbiTranslateWorkerError(AError);
+    StatusLabel.Caption := LaguNETbiWorkerErrorText(AErrorKind, AError);
 
     if FApplyFromQuickMenu then
       ShowTrayNotification(SLoc_Messages_OperationError, True);

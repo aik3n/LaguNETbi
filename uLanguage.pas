@@ -7,7 +7,7 @@ function LanguageSelected: String;
 function LanguageDesiredCode: String;
 function LanguageSetSelection(const ACode: String): Boolean;
 implementation
-uses Windows, IniFiles;
+uses IniFiles;
 
 function LaguNETbiGetUserDefaultUILanguage: Word; stdcall;
   external 'kernel32.dll' name 'GetUserDefaultUILanguage';
