@@ -223,38 +223,51 @@ end;
 procedure TQuickForm.AddDirectory(const ADirectory: String; AParent: TTreeNode);
 var
   SR: TSearchRec;
+  Dirs, Files: TStringList;
   Node: TTreeNode;
-  FullName: String;
+  I: Integer;
 begin
-  if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*', faAnyFile, SR) <> 0 then
-    Exit;
-
+  Dirs := TStringList.Create;
+  Files := TStringList.Create;
   try
-    repeat
-      if (SR.Name = '.') or (SR.Name = '..') then
-        Continue;
+    Dirs.Sorted := True;
+    Dirs.CaseSensitive := False;
+    Files.Sorted := True;
+    Files.CaseSensitive := False;
 
-      FullName := IncludeTrailingPathDelimiter(ADirectory) + SR.Name;
+    if FindFirst(IncludeTrailingPathDelimiter(ADirectory) + '*', faAnyFile, SR) = 0 then
+    try
+      repeat
+        if (SR.Name = '.') or (SR.Name = '..') then
+          Continue;
+        if (SR.Attr and faDirectory) <> 0 then
+          Dirs.Add(SR.Name)
+        else if SameText(ExtractFileExt(SR.Name), '.bat') then
+          Files.Add(SR.Name);
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
 
-      if (SR.Attr and faDirectory) <> 0 then
-      begin
-        Node := TreeScripts.Items.AddChild(AParent, SR.Name);
-        Node.ImageIndex := 0;
-        Node.SelectedIndex := 0;
-        AddDirectory(FullName, Node);
-      end
-      else if SameText(ExtractFileExt(SR.Name), '.bat') then
-      begin
-        Node := TreeScripts.Items.AddChild(AParent, SR.Name);
-        Node.ImageIndex := 1;
-        Node.SelectedIndex := 1;
-      end;
-    until FindNext(SR) <> 0;
+    { Mismo orden que el arbol principal: archivos antes que carpetas. }
+    for I := 0 to Files.Count - 1 do
+    begin
+      Node := TreeScripts.Items.AddChild(AParent, Files[I]);
+      Node.ImageIndex := 1;
+      Node.SelectedIndex := 1;
+    end;
+    for I := 0 to Dirs.Count - 1 do
+    begin
+      Node := TreeScripts.Items.AddChild(AParent, Dirs[I]);
+      Node.ImageIndex := 0;
+      Node.SelectedIndex := 0;
+      AddDirectory(IncludeTrailingPathDelimiter(ADirectory) + Dirs[I], Node);
+    end;
   finally
-    FindClose(SR);
+    Dirs.Free;
+    Files.Free;
   end;
 end;
-
 procedure TQuickForm.RefreshScripts(const ARootPath: String);
 var
   RootNode: TTreeNode;

@@ -140,6 +140,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure FormDestroy(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure ShowFromTray(Sender: TObject);
+    procedure RefreshWhenShown(Sender: TObject);
     procedure HideToTray(Sender: TObject);
     procedure ExitFromTray(Sender: TObject);
     procedure ShowScriptsPopup(Sender: TObject);
@@ -150,6 +151,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     procedure ScriptTreeDragOver(Sender, Source: TObject; X, Y: Integer;
       State: TDragState; var Accept: Boolean);
     procedure ScriptTreeDragDrop(Sender, Source: TObject; X, Y: Integer);
+    procedure ScriptTreeEndDrag(Sender, Target: TObject; X, Y: Integer);
     procedure ExecuteScript(Sender: TObject);
     procedure EditScript(Sender: TObject);
     procedure OpenScriptLocation(Sender: TObject);
@@ -177,6 +179,10 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FBatchThread: TThread;
     FApplyFromQuickMenu: Boolean;
     FDraggedNode: TTreeNode;
+    FDragHoverTimer: TTimer;
+    FDragImages: TImageList;
+    FDragHoverNode: TTreeNode;
+    FDragHoverStarted: DWORD;
     FContextNode: TTreeNode;
     FScriptMenu: TPopupMenu;
     FExecuteScriptMenuItem: TMenuItem;
@@ -189,6 +195,8 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
     FAdapterTypes: TStringList;
     FAdapterGuids: TStringList;
     procedure CreateScriptImages;
+    procedure DragHoverTimerTick(Sender: TObject);
+    procedure ScriptTreeStartDrag(Sender: TObject; var DragObject: TDragObject);
     procedure SetBatPreviewExpanded(AExpanded: Boolean);
     procedure ApplyLanguage;
     procedure SettingsLanguageChanged(Sender: TObject);
@@ -742,6 +750,14 @@ var
   InfoBmp: TBitmap;
   Ini: TIniFile;
 begin
+    TrayIcon.OnDblClick := @ShowFromTray;
+FDragImages := TImageList.Create(Self);
+  ScriptTree.OnStartDrag := @ScriptTreeStartDrag;
+  FDragHoverTimer := TTimer.Create(Self);
+  FDragHoverTimer.Enabled := False;
+  FDragHoverTimer.Interval := 100;
+  FDragHoverTimer.OnTimer := @DragHoverTimerTick;
+  FDragHoverNode := nil;
   InfoBmp := TBitmap.Create;
   try
     InfoBmp.SetSize(30, 30);
@@ -839,6 +855,7 @@ begin
   FDescriptionPaths.CaseSensitive := False;
   FDescriptionTexts := TStringList.Create;
 
+  ScriptTree.OnEndDrag := @ScriptTreeEndDrag;
   FQuickForm := TQuickForm.Create(Self);
   FQuickForm.OnExecuteScript := @ExecuteScriptFromQuickMenu;
   FQuickForm.RefreshScripts(FScriptsPath);
@@ -867,6 +884,7 @@ begin
   FScriptMenu.Items.Add(FOpenLocationMenuItem);
 
   CreateScriptImages;
+  OnShow := @RefreshWhenShown;
   RefreshSidebarScripts;
   UpdateValidationUI;
   ApplyLanguage;
@@ -927,6 +945,7 @@ end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
 begin
+  if Assigned(FDragHoverTimer) then FDragHoverTimer.Enabled := False;
   if Assigned(FAutoLanguageWorker) then
   begin
     FAutoLanguageWorker.OnTerminate := nil;
@@ -985,6 +1004,40 @@ begin
   end
   else
     CloseAction := caHide;
+end;
+
+procedure TForm1.RefreshWhenShown(Sender: TObject);
+var
+  PreviousSelection: String;
+  PreviousNode, Candidate: TTreeNode;
+  I: Integer;
+begin
+  { Solo refrescar cuando ya se ha inicializado el formulario. }
+  if (FScriptsPath = '') or not Assigned(FDescriptionPaths) or
+     not Assigned(FAdapterGuids) then Exit;
+
+  PreviousSelection := '';
+  PreviousNode := ScriptTree.Selected;
+  if Assigned(PreviousNode) then
+    PreviousSelection := NodeRelativePath(PreviousNode);
+
+  RefreshSidebarScripts;
+  if PreviousSelection <> '' then
+    for I := 0 to ScriptTree.Items.Count - 1 do
+    begin
+      Candidate := ScriptTree.Items[I];
+      if SameText(NodeRelativePath(Candidate), PreviousSelection) then
+      begin
+        ScriptTree.Selected := Candidate;
+        Candidate.MakeVisible;
+        Break;
+      end;
+    end;
+
+  { EnumerateNetworkAdapters ya conserva el adaptador por nombre. }
+  EnumerateNetworkAdapters;
+  AdapterChanged(nil);
+  UpdateValidationUI;
 end;
 
 procedure TForm1.ShowFromTray(Sender: TObject);
@@ -2403,15 +2456,6 @@ begin
       FindClose(SR);
     end;
 
-    for I := 0 to Dirs.Count - 1 do
-    begin
-      Node := ScriptTree.Items.AddChild(AParent, Dirs[I]);
-      Node.ImageIndex := 0;
-      Node.SelectedIndex := 0;
-      AddSidebarDirectory(
-        IncludeTrailingPathDelimiter(ADirectory) + Dirs[I], Node);
-    end;
-
     for I := 0 to Files.Count - 1 do
     begin
       Node := ScriptTree.Items.AddChild(AParent, Files[I]);
@@ -2421,6 +2465,15 @@ begin
       FullName := IncludeTrailingPathDelimiter(ADirectory) + Files[I];
       FDescriptionPaths.Add(FullName);
       FDescriptionTexts.Add(ReadScriptDescription(FullName));
+    end;
+
+    for I := 0 to Dirs.Count - 1 do
+    begin
+      Node := ScriptTree.Items.AddChild(AParent, Dirs[I]);
+      Node.ImageIndex := 0;
+      Node.SelectedIndex := 0;
+      AddSidebarDirectory(
+        IncludeTrailingPathDelimiter(ADirectory) + Dirs[I], Node);
     end;
   finally
     Dirs.Free;
@@ -2695,6 +2748,111 @@ begin
   end;
 end;
 
+{ La imagen pertenece al formulario y el objeto de arrastre solo la referencia. }
+type
+  TProfileDragObject = class(TDragControlObjectEx)
+  protected
+    function GetDragImages: TDragImageList; override;
+  end;
+
+var
+  ProfileDragImages: TDragImageList = nil;
+
+function TProfileDragObject.GetDragImages: TDragImageList;
+begin
+  Result := ProfileDragImages;
+end;
+
+procedure TForm1.ScriptTreeStartDrag(Sender: TObject; var DragObject: TDragObject);
+var
+  Bmp: TBitmap;
+  DragCaption: String;
+  IconWidth, W: Integer;
+begin
+  if not IsScriptNode(FDraggedNode) then Exit;
+  if not Assigned(FDragImages) then Exit;
+  DragCaption := FDraggedNode.Text;
+  IconWidth := 26;
+  Bmp := TBitmap.Create;
+  try
+    Bmp.Canvas.Font.Assign(ScriptTree.Font);
+    W := Bmp.Canvas.TextWidth(DragCaption) + IconWidth + 14;
+    if W < 100 then W := 100;
+    if W > 360 then W := 360;
+    Bmp.SetSize(W, 32);
+    Bmp.Canvas.Brush.Color := clInfoBk;
+    Bmp.Canvas.FillRect(Rect(0, 0, W, 32));
+    if Assigned(FScriptImages) then
+      FScriptImages.Draw(Bmp.Canvas, 3, 0, 1);
+    Bmp.Canvas.Font.Assign(ScriptTree.Font);
+    Bmp.Canvas.Brush.Style := bsClear;
+    Bmp.Canvas.TextOut(IconWidth, 8, DragCaption);
+    FDragImages.Clear;
+    FDragImages.Width := W;
+    FDragImages.Height := 32;
+    FDragImages.Add(Bmp, nil);
+    ProfileDragImages := FDragImages;
+    DragObject := TProfileDragObject.Create(ScriptTree);
+    DragObject.AlwaysShowDragImages := True;
+  finally
+    Bmp.Free;
+  end;
+end;
+procedure TForm1.DragHoverTimerTick(Sender: TObject);
+var
+  Pt: TPoint;
+  Node, VisibleNode: TTreeNode;
+  Margin: Integer;
+begin
+  if not Assigned(FDraggedNode) then
+  begin
+    FDragHoverTimer.Enabled := False;
+    FDragHoverNode := nil;
+    Exit;
+  end;
+
+  Pt := ScriptTree.ScreenToClient(Mouse.CursorPos);
+  if (Pt.X < 0) or (Pt.X >= ScriptTree.ClientWidth) or
+     (Pt.Y < 0) or (Pt.Y >= ScriptTree.ClientHeight) then
+  begin
+    FDragHoverNode := nil;
+    Exit;
+  end;
+
+  { Desplazamiento mientras se arrastra, sin modificar el orden. }
+  Margin := 24;
+  VisibleNode := ScriptTree.TopItem;
+  if Assigned(VisibleNode) then
+  begin
+    if Pt.Y < Margin then
+    begin
+      VisibleNode := VisibleNode.GetPrevVisible;
+      if Assigned(VisibleNode) then ScriptTree.TopItem := VisibleNode;
+    end
+    else if Pt.Y >= ScriptTree.ClientHeight - Margin then
+    begin
+      VisibleNode := VisibleNode.GetNextVisible;
+      if Assigned(VisibleNode) then ScriptTree.TopItem := VisibleNode;
+    end;
+  end;
+
+  Node := ScriptTree.GetNodeAt(Pt.X, Pt.Y);
+  if not Assigned(Node) or not IsFolderNode(Node) or (Node = FDraggedNode) then
+  begin
+    FDragHoverNode := nil;
+    Exit;
+  end;
+  if Node <> FDragHoverNode then
+  begin
+    FDragHoverNode := Node;
+    FDragHoverStarted := GetTickCount;
+  end
+  else if (GetTickCount - FDragHoverStarted >= 700) and not Node.Expanded then
+  begin
+    Node.Expand(False);
+    FDragHoverStarted := GetTickCount;
+  end;
+end;
 procedure TForm1.ScriptTreeDragOver(Sender, Source: TObject; X, Y: Integer;
   State: TDragState; var Accept: Boolean);
 var
@@ -2702,123 +2860,123 @@ var
   TargetPath, TargetName: String;
 begin
   Accept := False;
-
-  if (Source <> ScriptTree) or not IsScriptNode(FDraggedNode) then
+  if Assigned(FDragHoverTimer) then FDragHoverTimer.Enabled := True;
+  if ((Source <> ScriptTree) and not (Source is TProfileDragObject)) or not IsScriptNode(FDraggedNode) then
   begin
-    ScriptTree.Cursor := crDefault;
+    ScriptTree.Cursor := crNoDrop;
     Exit;
   end;
-
   TargetNode := ScriptTree.GetNodeAt(X, Y);
-
-  { Espacio vacio = raiz de scripts. }
+  { Update 045: destination BAT = its containing folder. }
+  if Assigned(TargetNode) and IsScriptNode(TargetNode) then
+    TargetNode := TargetNode.Parent;
   if not Assigned(TargetNode) then
   begin
-    Accept := ExtractFileDir(ScriptNodePath(FDraggedNode)) <>
-      ExcludeTrailingPathDelimiter(FScriptsPath);
-
-    if Accept then
-    begin
-      ScriptTree.Cursor := crSizeAll;
-      StatusLabel.Caption := SLoc_Messages_MoveTo + ' ' + FDraggedNode.Text + ' -> scripts';
-    end
-    else
-    begin
-      ScriptTree.Cursor := crDefault;
-      StatusLabel.Caption := SLoc_Messages_ScriptAlreadyAtRoot;
-    end;
-    Exit;
-  end;
-
-  TargetPath := ScriptNodePath(TargetNode);
-  if DirectoryExists(TargetPath) then
-  begin
-    Accept := not SameText(
-      ExtractFileDir(ScriptNodePath(FDraggedNode)),
-      ExcludeTrailingPathDelimiter(TargetPath));
-
-    if Accept then
-    begin
-      { Seleccionar la carpeta sirve como resaltado visual del destino. }
-      ScriptTree.Selected := TargetNode;
-      ScriptTree.Cursor := crSizeAll;
-      TargetName := TargetNode.Text;
-      StatusLabel.Caption := SLoc_Messages_MoveTo + ' ' + FDraggedNode.Text + ' -> ' + TargetName;
-    end
-    else
-    begin
-      ScriptTree.Cursor := crDefault;
-      StatusLabel.Caption := SLoc_Messages_ScriptAlreadyIn + ' ' + TargetNode.Text;
-    end;
+    Accept := not SameText(ExtractFileDir(ScriptNodePath(FDraggedNode)),
+      ExcludeTrailingPathDelimiter(FScriptsPath));
+    TargetName := 'scripts';
   end
   else
   begin
-    ScriptTree.Cursor := crDefault;
-    StatusLabel.Caption := SLoc_Messages_DropOnFolder;
+    TargetPath := ScriptNodePath(TargetNode);
+    Accept := DirectoryExists(TargetPath) and not SameText(
+      ExtractFileDir(ScriptNodePath(FDraggedNode)),
+      ExcludeTrailingPathDelimiter(TargetPath));
+    TargetName := TargetNode.Text;
+  end;
+  if Accept then
+  begin
+    ScriptTree.Cursor := crSizeAll;
+    StatusLabel.Caption := SLoc_Messages_MoveTo + ' ' + FDraggedNode.Text +
+      ' -> ' + TargetName;
+    if Assigned(TargetNode) and IsFolderNode(TargetNode) then
+      ScriptTree.Selected := TargetNode;
+  end
+  else
+  begin
+    ScriptTree.Cursor := crNoDrop;
+    if Assigned(TargetNode) and IsScriptNode(TargetNode) then
+      StatusLabel.Caption := SLoc_Messages_DropOnFolder
+    else
+      StatusLabel.Caption := SLoc_Messages_ScriptAlreadyIn + ' ' + TargetName;
   end;
 end;
-
 procedure TForm1.ScriptTreeDragDrop(Sender, Source: TObject; X, Y: Integer);
 var
   TargetNode: TTreeNode;
-  SourcePath, DestDir, DestPath: String;
+  SourcePath, DestDir, DestPath, BackupPath: String;
   Answer: TModalResult;
+  HadDestination: Boolean;
 begin
+  if Assigned(FDragHoverTimer) then FDragHoverTimer.Enabled := False;
+  FDragHoverNode := nil;
   ScriptTree.Cursor := crDefault;
-
-  if (Source <> ScriptTree) or not IsScriptNode(FDraggedNode) then
-    Exit;
-
-  SourcePath := ScriptNodePath(FDraggedNode);
-  TargetNode := ScriptTree.GetNodeAt(X, Y);
-
-  if Assigned(TargetNode) then
-  begin
-    DestDir := ScriptNodePath(TargetNode);
-    if not DirectoryExists(DestDir) then
-      Exit;
-  end
-  else
-    DestDir := FScriptsPath;
-
-  DestPath := IncludeTrailingPathDelimiter(DestDir) + ExtractFileName(SourcePath);
-
-  if SameText(SourcePath, DestPath) then
-    Exit;
-
-  if FileExists(DestPath) then
-  begin
-    Answer := MessageDlg(
-      SLoc_Messages_AlreadyExistsStart + ExtractFileName(DestPath) + SLoc_Messages_AlreadyExistsEnd + LineEnding +
-      SLoc_Messages_ReplaceFile,
-      mtConfirmation, [mbYes, mbNo], 0);
-    if Answer <> mrYes then
-      Exit;
-
-    if not DeleteFile(DestPath) then
+  try
+    if ((Source <> ScriptTree) and not (Source is TProfileDragObject)) or not IsScriptNode(FDraggedNode) then Exit;
+    SourcePath := ScriptNodePath(FDraggedNode);
+    if not FileExists(SourcePath) then Exit;
+    TargetNode := ScriptTree.GetNodeAt(X, Y);
+    { Update 045: dropping onto a BAT uses its parent folder. }
+    if Assigned(TargetNode) and IsScriptNode(TargetNode) then
+      TargetNode := TargetNode.Parent;
+    if Assigned(TargetNode) then
     begin
-      MessageDlg(SLoc_Messages_CannotReplace,
-        mtError, [mbOK], 0);
+      DestDir := ScriptNodePath(TargetNode);
+      if not DirectoryExists(DestDir) then Exit;
+    end
+    else
+      DestDir := FScriptsPath;
+    DestPath := IncludeTrailingPathDelimiter(DestDir) + ExtractFileName(SourcePath);
+    if SameText(SourcePath, DestPath) then Exit;
+
+    HadDestination := FileExists(DestPath);
+    BackupPath := '';
+    if HadDestination then
+    begin
+      Answer := MessageDlg(
+        SLoc_Messages_AlreadyExistsStart + ExtractFileName(DestPath) +
+        SLoc_Messages_AlreadyExistsEnd + LineEnding +
+        SLoc_Messages_ReplaceFile, mtConfirmation, [mbYes, mbNo], 0);
+      if Answer <> mrYes then Exit;
+      BackupPath := DestPath + '.lagunetbi-backup-' + IntToHex(GetTickCount, 8);
+      if FileExists(BackupPath) or not RenameFile(DestPath, BackupPath) then
+      begin
+        MessageDlg(SLoc_Messages_CannotReplace, mtError, [mbOK], 0);
+        Exit;
+      end;
+    end;
+    if not RenameFile(SourcePath, DestPath) then
+    begin
+      if HadDestination and not RenameFile(BackupPath, DestPath) then
+        MessageDlg(SLoc_Messages_ReviewBoth + LineEnding + BackupPath,
+          mtError, [mbOK], 0);
+      MessageDlg(SLoc_Messages_CannotMove + LineEnding + SourcePath +
+        LineEnding + '->' + LineEnding + DestPath, mtError, [mbOK], 0);
       Exit;
     end;
+    if HadDestination and not DeleteFile(BackupPath) then
+      MessageDlg(SLoc_Messages_ReviewBoth + LineEnding + BackupPath,
+        mtWarning, [mbOK], 0);
+    FDraggedNode := nil;
+    RefreshSidebarScripts;
+    SelectScriptInTree(DestPath);
+    ScriptTreeClick(nil);
+    if Assigned(FQuickForm) then FQuickForm.RefreshScripts(FScriptsPath);
+    StatusLabel.Caption := SLoc_Messages_Moved + ' ' + ExtractFileName(DestPath);
+  finally
+    ScriptTree.Cursor := crDefault;
+    FDraggedNode := nil;
   end;
-
-  if not RenameFile(SourcePath, DestPath) then
-  begin
-    MessageDlg(SLoc_Messages_CannotMove + LineEnding +
-      SourcePath + LineEnding + '->' + LineEnding + DestPath,
-      mtError, [mbOK], 0);
-    Exit;
-  end;
-
-  FDraggedNode := nil;
-  RefreshSidebarScripts;
-  if Assigned(FQuickForm) then
-    FQuickForm.RefreshScripts(FScriptsPath);
-
-  StatusLabel.Caption := SLoc_Messages_Moved + ' ' + ExtractFileName(DestPath);
 end;
 
+procedure TForm1.ScriptTreeEndDrag(Sender, Target: TObject; X, Y: Integer);
+begin
+  ProfileDragImages := nil;
+  if Assigned(FDragHoverTimer) then FDragHoverTimer.Enabled := False;
+  FDragHoverNode := nil;
+  ScriptTree.Cursor := crDefault;
+  FDraggedNode := nil;
+end;
 procedure TForm1.SetBatPreviewExpanded(AExpanded: Boolean);
 
 var
