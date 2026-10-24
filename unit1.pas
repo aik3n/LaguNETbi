@@ -238,14 +238,6 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
       ACancelled: Boolean);
     procedure ShowTrayNotification(const AText: String; AWarning: Boolean);
     procedure FinishApplyUI;
-    function ValidateBatchLines(
-      ALines: TStrings;
-      out AError: String
-    ): Boolean;
-    function ValidateBatchForExecution(
-      const AFileName: String;
-      out AError: String
-    ): Boolean;
     procedure BatchThreadFinished(
       AExitCode: DWORD;
       AErrorKind: TWorkerErrorKind;
@@ -280,7 +272,7 @@ var
 implementation
 
 uses
-  uWindowsSupport, uSettingsForm, uPersistentIPv4, uLanguage, LCLTranslator;
+  uWindowsSupport, uSettingsForm, uPersistentIPv4, uLanguage, LCLTranslator, uBatInterpreter;
 
 {$R *.lfm}
 
@@ -305,10 +297,8 @@ resourcestring
   SLoc_Messages_BatChecking = 'BAT executed. Checking connection...';
   SLoc_Messages_BatExecuted = 'BAT executed successfully.';
   SLoc_Messages_BatExitCode = 'BAT finished with exit code';
-  SLoc_Messages_BatInvalid = 'Invalid BAT. Nothing was executed.';
-  SLoc_Messages_BatInvalidTitle = 'Invalid BAT';
   SLoc_Messages_BatMissing = 'The BAT file does not exist.';
-  SLoc_Messages_BatRunning = 'Executing validated BAT...';
+  SLoc_Messages_BatRunning = 'Applying network profile...';
   SLoc_Messages_CannotFindDest = 'Could not determine the destination folder.';
   SLoc_Messages_CannotMove = 'Could not move the script.';
   SLoc_Messages_CannotReadBatPrefix = 'Could not read the BAT file:';
@@ -326,8 +316,6 @@ resourcestring
   SLoc_Messages_DhcpWithoutAddress = '(DHCP without an assigned address)';
   SLoc_Messages_DropOnFolder = 'Drop onto a folder';
   SLoc_Messages_IniWriteError = 'Could not create LaguNETbi.ini. Check folder permissions.';
-  SLoc_Messages_InvalidBatLinePrefix = 'Line';
-  SLoc_Messages_InvalidBatLineSuffix = 'not allowed:';
   SLoc_Messages_InvalidConfig = 'Invalid configuration. Nothing was applied.';
   SLoc_Messages_Moved = 'Moved:';
   SLoc_Messages_MoveHint = 'Move:';
@@ -342,14 +330,12 @@ resourcestring
   SLoc_Messages_NewScriptIn = 'New script in:';
   SLoc_Messages_NoAdapterIPv4Info = 'Windows returned no IPv4 information for the adapter.';
   SLoc_Messages_NoAdapterSelected = 'No network adapter is selected.';
-  SLoc_Messages_NoBatContents = 'There is no BAT content to validate.';
   SLoc_Messages_SelectScript = 'Select a script.';
   SLoc_Messages_NoBatSelected = 'No BAT selected';
   SLoc_Messages_NoIPv4Address = '(no IPv4 address)';
   SLoc_Messages_NoIPv4Selected = 'No IPv4 configuration was found for the selected adapter.';
   SLoc_Messages_NoNetshInSystem32 = 'netsh.exe was not found in System32.';
   SLoc_Messages_NoWifiProfile = 'No Wi-Fi profile is selected.';
-  SLoc_Messages_OnlyBatAllowed = 'Only .bat files can be executed.';
   SLoc_Messages_OperationCompleted = 'Operation completed';
   SLoc_Messages_OperationError = 'Operation failed';
   SLoc_Messages_PingAttempt = 'Checking host... attempt %d';
@@ -537,100 +523,20 @@ end;
 
 procedure TBatchThread.Execute;
 var
-  SEI: TShellExecuteInfoW;
-  VerbW, FileW, DirW: UnicodeString;
-  LastErr: DWORD;
-  Lines: TStringList;
-  I: Integer;
-  HasPause: Boolean;
+  ErrorText: String;
 begin
   FExitCode := 0;
   FErrorKind := wekNone;
   FError := '';
-
-  { La consola solo se muestra si el BAT espera entrada del usuario. }
-  HasPause := False;
-  Lines := TStringList.Create;
-  try
-    try
-      Lines.LoadFromFile(FFileName);
-      for I := 0 to Lines.Count - 1 do
-        if SameText(Trim(Lines[I]), 'pause') or
-           SameText(Trim(Lines[I]), '@pause') then
-        begin
-          HasPause := True;
-          Break;
-        end;
-    except
-      on E: Exception do
-      begin
-        FErrorKind := wekBatRead;
-        FError := E.Message;
-        Synchronize(@SyncFinished);
-        Exit;
-      end;
-    end;
-  finally
-    Lines.Free;
-  end;
-
-  FileW := UnicodeString(FFileName);
-  DirW := UnicodeString(ExtractFileDir(FFileName));
-
-  if LaguNETbiIsElevated then
-    VerbW := UnicodeString('open')
-  else
-    VerbW := UnicodeString('runas');
-
-  FillChar(SEI, SizeOf(SEI), 0);
-  SEI.cbSize := SizeOf(SEI);
-  SEI.fMask := SEE_MASK_NOCLOSEPROCESS;
-  SEI.lpVerb := PWideChar(VerbW);
-  SEI.lpFile := PWideChar(FileW);
-  SEI.lpDirectory := PWideChar(DirW);
-  if HasPause then
-    SEI.nShow := SW_SHOWNORMAL
-  else
-    SEI.nShow := SW_HIDE;
-
-  if not ShellExecuteExW(LPSHELLEXECUTEINFOW(@SEI)) then
+  if not ExecuteNetworkProfile(FFileName, ErrorText) then
   begin
-    LastErr := GetLastError;
-
-    if LastErr = ERROR_CANCELLED then
-      FErrorKind := wekBatCancelled
-    else
-    begin
-      FErrorKind := wekBatStart;
-      FError := SysErrorMessage(LastErr);
-    end;
-
-    Synchronize(@SyncFinished);
-    Exit;
+    FExitCode := 1;
+    FErrorKind := wekBatStart;
+    FError := ErrorText;
   end;
-
-  try
-    if SEI.hProcess = 0 then
-    begin
-      FErrorKind := wekBatNoProcess;
-      Synchronize(@SyncFinished);
-      Exit;
-    end;
-
-    WaitForSingleObject(SEI.hProcess, INFINITE);
-
-    if not GetExitCodeProcess(SEI.hProcess, FExitCode) then
-    begin
-      FErrorKind := wekBatExitCode;
-      FExitCode := 0;
-    end;
-  finally
-    if SEI.hProcess <> 0 then
-      CloseHandle(SEI.hProcess);
-  end;
-
   Synchronize(@SyncFinished);
 end;
+
 
 type
   { Las respuestas ICMP se validan por Status=IP_SUCCESS (0).
@@ -3794,152 +3700,6 @@ begin
   FApplyFromQuickMenu := False;
 end;
 
-function TForm1.ValidateBatchLines(
-  ALines: TStrings;
-  out AError: String
-): Boolean;
-var
-  I: Integer;
-  S, L: String;
-
-  function HasForbiddenShellSyntax(const AText: String): Boolean;
-  begin
-    Result :=
-      (Pos('&', AText) > 0) or
-      (Pos('|', AText) > 0) or
-      (Pos('>', AText) > 0) or
-      (Pos('<', AText) > 0) or
-      (Pos('^', AText) > 0) or
-      (Pos('%', AText) > 0) or
-      (Pos('!', AText) > 0) or
-      (Pos('(', AText) > 0) or
-      (Pos(')', AText) > 0);
-  end;
-
-  procedure InvalidLine(ALine: Integer; const AText: String);
-  begin
-    AError :=
-      SLoc_Messages_InvalidBatLinePrefix + ' ' + IntToStr(ALine) +
-      ' ' + SLoc_Messages_InvalidBatLineSuffix + LineEnding +
-      AText;
-  end;
-
-  function IsAllowedIPv4Command(const ALine: String): Boolean;
-  var
-    LowerLine: String;
-  begin
-    LowerLine := LowerCase(ALine);
-
-    Result :=
-      (Pos('netsh interface ipv4 set address ', LowerLine) = 1) and
-      (CommandValue(ALine, 'name') <> '') and
-      (
-        (Pos('source=dhcp', LowerLine) > 0) or
-        (Pos(' static ', LowerLine) > 0) or
-        (Pos('source=static', LowerLine) > 0)
-      );
-  end;
-
-  function IsAllowedWifiCommand(const ALine: String): Boolean;
-  begin
-    Result :=
-      (Pos('netsh wlan connect ', LowerCase(ALine)) = 1) and
-      (CommandValue(ALine, 'name') <> '');
-  end;
-
-begin
-  Result := False;
-  AError := '';
-
-  if not Assigned(ALines) then
-  begin
-    AError := SLoc_Messages_NoBatContents;
-    Exit;
-  end;
-
-  for I := 0 to ALines.Count - 1 do
-  begin
-    S := Trim(ALines[I]);
-
-    if S = '' then
-      Continue;
-
-    if HasForbiddenShellSyntax(S) then
-    begin
-      InvalidLine(I + 1, S);
-      Exit;
-    end;
-
-    L := LowerCase(S);
-
-    if Pos('::', L) = 1 then
-      Continue;
-
-    if (L = 'rem') or (Pos('rem ', L) = 1) then
-      Continue;
-
-    if (L = '@echo off') or
-       (L = 'echo off') or
-       (L = 'pause') or
-       (L = '@pause') then
-      Continue;
-
-    if Pos('echo ', L) = 1 then
-      Continue;
-
-    if IsAllowedIPv4Command(S) then
-      Continue;
-
-    if IsAllowedWifiCommand(S) then
-      Continue;
-
-    InvalidLine(I + 1, S);
-    Exit;
-  end;
-
-  Result := True;
-end;
-
-
-function TForm1.ValidateBatchForExecution(
-  const AFileName: String;
-  out AError: String
-): Boolean;
-var
-  Lines: TStringList;
-begin
-  Result := False;
-  AError := '';
-
-  if not FileExists(AFileName) then
-  begin
-    AError := SLoc_Messages_BatMissing;
-    Exit;
-  end;
-
-  if not SameText(ExtractFileExt(AFileName), '.bat') then
-  begin
-    AError := SLoc_Messages_OnlyBatAllowed;
-    Exit;
-  end;
-
-  Lines := TStringList.Create;
-  try
-    try
-      Lines.LoadFromFile(AFileName);
-    except
-      on E: Exception do
-      begin
-        AError := SLoc_Messages_CannotReadBatPrefix + ' ' + E.Message;
-        Exit;
-      end;
-    end;
-
-    Result := ValidateBatchLines(Lines, AError);
-  finally
-    Lines.Free;
-  end;
-end;
 procedure TForm1.BatchThreadFinished(
   AExitCode: DWORD;
   AErrorKind: TWorkerErrorKind;
@@ -4007,7 +3767,6 @@ end;
 
 procedure TForm1.ExecuteScriptFromQuickMenu(const AFileName: String);
 var
-  ValidationError: String;
   UsePing: Boolean;
   PingTarget: String;
 begin
@@ -4015,25 +3774,6 @@ begin
     Exit;
 
   CancelActivePing;
-
-  if not ValidateBatchForExecution(AFileName, ValidationError) then
-  begin
-    StatusLabel.Font.Color := clRed;
-    StatusLabel.Caption := SLoc_Messages_BatInvalid;
-
-    MessageDlg(
-      SLoc_Messages_BatInvalidTitle,
-      ValidationError,
-      mtWarning,
-      [mbOK],
-      0
-    );
-
-    if Assigned(FQuickForm) then
-      FQuickForm.FinishExecution(StatusLabel.Caption);
-
-    Exit;
-  end;
 
   SelectScriptInTree(AFileName);
   LoadScriptConfiguration(AFileName);

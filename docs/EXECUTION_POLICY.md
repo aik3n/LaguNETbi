@@ -103,24 +103,23 @@ que se ejecuta directamente desde este botón.
 
 ## Ejecución desde el tray
 
-El tray es diferente porque allí el usuario elige directamente un perfil BAT.
+Al seleccionar un perfil BAT, LaguNETbi lee e interpreta su contenido como
+datos. El BAT no se entrega a `cmd.exe` ni se ejecuta mediante su asociación
+de archivo.
 
-En ese flujo:
+El intérprete identifica únicamente las operaciones de red soportadas.
+Las líneas desconocidas se ignoran y **nunca se ejecutan**. Si una operación
+reconocida tiene parámetros incorrectos, el perfil se rechaza antes de aplicar
+cambios. Si no hay ninguna operación de red reconocida, no se ejecuta nada.
 
-1. se lee el BAT seleccionado;
-2. se interpretan sus operaciones soportadas;
-3. se validan;
-4. se ejecutan únicamente esas operaciones permitidas.
+Las operaciones reconocidas se convierten en una lista de argumentos y se
+ejecutan llamando directamente a `netsh.exe`; la aplicación comprueba el
+resultado antes de continuar con la siguiente operación.
 
-Nunca debe hacerse un equivalente genérico a:
+Los metadatos como `:: testPing=` y `:: description=` no son instrucciones
+ejecutables. La comprobación ping se gestiona por separado.
 
-```text
-cmd /c archivo.bat
-ShellExecute(archivo.bat)
-```
-
-con privilegios elevados.
-
+No se ejecuta el BAT original con privilegios elevados.
 
 ## Operaciones soportadas actualmente
 
