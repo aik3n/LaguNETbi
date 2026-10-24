@@ -245,6 +245,7 @@ PIPAdapterAddressesPartial = ^TIPAdapterAddressesPartial;
       AErrorKind: TWorkerErrorKind; const AError: String;
       ACancelled: Boolean);
     procedure ShowTrayNotification(const AText: String; AWarning: Boolean);
+    function NotificationsMuted: Boolean;
     procedure FinishApplyUI;
     procedure BatchThreadFinished(
       AExitCode: DWORD;
@@ -3690,12 +3691,25 @@ begin
     Args.Free;
   end;
 end;
+function TForm1.NotificationsMuted: Boolean;
+var
+  Ini: TIniFile;
+begin
+  Result := False;
+  if (FIniPath = '') or not FileExists(FIniPath) then Exit;
+  Ini := TIniFile.Create(FIniPath);
+  try
+    Result := Ini.ReadBool('Notifications', 'Muted', False);
+  finally
+    Ini.Free;
+  end;
+end;
 procedure TForm1.ShowTrayNotification(
   const AText: String;
   AWarning: Boolean
 );
 begin
-  if not FTrayReady then
+  if (not FTrayReady) or NotificationsMuted then
     Exit;
 
   TrayIcon.BalloonTitle := 'LaguNET bi';

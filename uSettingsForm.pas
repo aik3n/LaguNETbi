@@ -1,4 +1,206 @@
-unit uSettingsForm;{$mode objfpc}{$H+}interfaceuses  Windows, ShellApi, Classes, SysUtils, Forms, Controls, Graphics, Dialogs,  StdCtrls, LCLTranslator, uWindowsSupport, uLanguage, uLanguageRepo;type  TSettingsForm = class(TForm)    TitleLabel: TLabel;    SubtitleLabel: TLabel;    IntroLabel: TLabel;    SettingsGroup: TGroupBox;    StartupCheck: TCheckBox;    LanguageLabel: TLabel;    LanguageCombo: TComboBox;    LanguageSearchButton: TButton;    ShowBatContentCheck: TCheckBox;    StartupStatus: TLabel;    CreditsGroup: TGroupBox;    CreditsLabel: TLabel;    RepositoryButton: TButton;    CloseButton: TButton;    procedure FormCreate(Sender: TObject);    procedure StartupCheckClick(Sender: TObject);    procedure LanguageComboChange(Sender: TObject);    procedure LanguageSearchClick(Sender: TObject);    procedure LanguageNetworkFinished(Sender: TObject);    procedure FormDestroy(Sender: TObject);    procedure ShowBatContentCheckClick(Sender: TObject);    procedure RepositoryButtonClick(Sender: TObject);  private    FUpdating: Boolean;    FOnShowBatContentChanged: TNotifyEvent;    FOnLanguageChanged: TNotifyEvent;    FRemoteFiles: TStringList;    FChoiceCodes: TStringList;    FChoiceFiles: TStringList;    FNetwork: TLanguageRepoThread;    FPendingCode: String;    procedure ApplyLanguage;    procedure ApplySelectedLanguage;    procedure FillLanguageChoices;    procedure StartLanguageNetwork(AAction: TLanguageRepoAction;      const ACode, AFileName: String);    function GetShowBatContent: Boolean;    procedure SetShowBatContent(AValue: Boolean);    procedure RefreshStartupState;  public    property OnLanguageChanged: TNotifyEvent      read FOnLanguageChanged write FOnLanguageChanged;    property ShowBatContent: Boolean      read GetShowBatContent write SetShowBatContent;    property OnShowBatContentChanged: TNotifyEvent      read FOnShowBatContentChanged write FOnShowBatContentChanged;  end;implementation{$R *.lfm}resourcestring  SLoc_Messages_StartupApplying = 'Applying...';  SLoc_Messages_StartupChangeFailed = 'Could not change Windows startup settings.';  SLoc_Settings_Automatic = 'Automatic (Windows language)';  SLoc_Settings_DownloadFailed = 'Could not install the selected language.';  SLoc_Settings_Downloading = 'Downloading...';  SLoc_Settings_NoLanguages = 'No languages were found on GitHub.';  SLoc_Settings_SaveError = 'Could not save language preference.';  SLoc_Settings_Search = 'Search languages';  SLoc_Settings_SearchFailed = 'Could not retrieve languages from GitHub.';  SLoc_Settings_Searching = 'Searching...';  SLoc_Settings_StartupActiveAdmin = 'Enabled. LaguNETbi is running with administrator privileges.';  SLoc_Settings_StartupActiveNormal = 'Enabled for the next start. This session may still request permission.';  SLoc_Settings_StartupOffAdmin = 'Disabled for this copy. Current privileges remain until exit.';  SLoc_Settings_StartupOffNormal = 'Disabled for this copy. Network changes may request permission.';procedure TSettingsForm.FormCreate(Sender: TObject);begin  FRemoteFiles := TStringList.Create;  FChoiceCodes := TStringList.Create;  FChoiceFiles := TStringList.Create;  FNetwork := nil;  RefreshStartupState;end;procedure TSettingsForm.FormDestroy(Sender: TObject);begin  { El worker no accede al formulario; su evento no debe sobrevivirlo. }  if Assigned(FNetwork) then  begin    FNetwork.OnTerminate := nil;    FNetwork.Terminate;    FNetwork := nil;  end;  FRemoteFiles.Free;  FChoiceCodes.Free;  FChoiceFiles.Free;end;procedure TSettingsForm.RefreshStartupState;begin  FUpdating := True;  try    StartupCheck.Checked := LaguNETbiStartupTaskExists;  finally    FUpdating := False;  end;  ApplyLanguage;end;procedure TSettingsForm.ApplyLanguage;begin  { RepositoryButton.Caption procede del formulario y LCLTranslator. }  if not Assigned(FNetwork) then    LanguageSearchButton.Caption := SLoc_Settings_Search;  FillLanguageChoices;  if StartupCheck.Checked then  begin    if LaguNETbiIsElevated then      StartupStatus.Caption := SLoc_Settings_StartupActiveAdmin    else      StartupStatus.Caption := SLoc_Settings_StartupActiveNormal;  end  else  begin    if LaguNETbiIsElevated then      StartupStatus.Caption := SLoc_Settings_StartupOffAdmin    else      StartupStatus.Caption := SLoc_Settings_StartupOffNormal;  end;end;procedure TSettingsForm.ApplySelectedLanguage;
+unit uSettingsForm;
+
+
+
+{$mode objfpc}{$H+}
+
+
+
+interface
+
+
+
+uses
+
+  Windows, ShellApi, Classes, SysUtils, Forms, Controls, Graphics, Dialogs,
+
+  StdCtrls, IniFiles, LCLTranslator, uWindowsSupport, uLanguage, uLanguageRepo;
+
+
+
+type
+
+  TSettingsForm = class(TForm)
+
+    TitleLabel: TLabel;
+
+    SubtitleLabel: TLabel;
+
+    IntroLabel: TLabel;
+
+    SettingsGroup: TGroupBox;
+
+    StartupCheck: TCheckBox;
+    LanguageLabel: TLabel;
+    LanguageCombo: TComboBox;
+    LanguageSearchButton: TButton;
+
+    ShowBatContentCheck: TCheckBox;
+    NotificationsGroup: TGroupBox;
+    MuteNotificationsCheck: TCheckBox;
+
+    StartupStatus: TLabel;
+
+    CreditsGroup: TGroupBox;
+
+    CreditsLabel: TLabel;
+
+    RepositoryButton: TButton;
+
+    CloseButton: TButton;
+
+    procedure FormCreate(Sender: TObject);
+
+    procedure StartupCheckClick(Sender: TObject);
+    procedure LanguageComboChange(Sender: TObject);
+    procedure LanguageSearchClick(Sender: TObject);
+    procedure LanguageNetworkFinished(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+
+    procedure ShowBatContentCheckClick(Sender: TObject);
+    procedure MuteNotificationsCheckClick(Sender: TObject);
+
+    procedure RepositoryButtonClick(Sender: TObject);
+
+  private
+
+    FUpdating: Boolean;
+
+    FOnShowBatContentChanged: TNotifyEvent;
+    FOnLanguageChanged: TNotifyEvent;
+    FRemoteFiles: TStringList;
+    FChoiceCodes: TStringList;
+    FChoiceFiles: TStringList;
+    FNetwork: TLanguageRepoThread;
+    FPendingCode: String;
+    procedure ApplyLanguage;
+    procedure ApplySelectedLanguage;
+    procedure FillLanguageChoices;
+    procedure StartLanguageNetwork(AAction: TLanguageRepoAction;
+      const ACode, AFileName: String);
+
+    function GetShowBatContent: Boolean;
+
+    procedure SetShowBatContent(AValue: Boolean);
+
+    procedure RefreshStartupState;
+
+  public
+
+    property OnLanguageChanged: TNotifyEvent
+      read FOnLanguageChanged write FOnLanguageChanged;
+    property ShowBatContent: Boolean
+
+      read GetShowBatContent write SetShowBatContent;
+
+    property OnShowBatContentChanged: TNotifyEvent
+
+      read FOnShowBatContentChanged write FOnShowBatContentChanged;
+
+  end;
+
+
+
+implementation
+
+
+
+{$R *.lfm}
+
+resourcestring
+  SLoc_Messages_StartupApplying = 'Applying...';
+  SLoc_Messages_StartupChangeFailed = 'Could not change Windows startup settings.';
+  SLoc_Settings_Automatic = 'Automatic (Windows language)';
+  SLoc_Settings_DownloadFailed = 'Could not install the selected language.';
+  SLoc_Settings_Downloading = 'Downloading...';
+  SLoc_Settings_NoLanguages = 'No languages were found on GitHub.';
+  SLoc_Settings_SaveError = 'Could not save language preference.';
+  SLoc_Settings_Search = 'Search languages';
+  SLoc_Settings_SearchFailed = 'Could not retrieve languages from GitHub.';
+  SLoc_Settings_Searching = 'Searching...';
+  SLoc_Settings_StartupActiveAdmin = 'Enabled. LaguNETbi is running with administrator privileges.';
+  SLoc_Settings_StartupActiveNormal = 'Enabled for the next start. This session may still request permission.';
+  SLoc_Settings_StartupOffAdmin = 'Disabled for this copy. Current privileges remain until exit.';
+  SLoc_Settings_StartupOffNormal = 'Disabled for this copy. Network changes may request permission.';
+
+
+
+
+
+procedure TSettingsForm.FormCreate(Sender: TObject);
+begin
+  FRemoteFiles := TStringList.Create;
+  FChoiceCodes := TStringList.Create;
+  FChoiceFiles := TStringList.Create;
+  FNetwork := nil;
+  RefreshStartupState;
+  { Predeterminado: notificaciones visibles. }
+  with TIniFile.Create(IncludeTrailingPathDelimiter(
+    ExtractFilePath(ParamStr(0))) + 'LaguNETbi.ini') do
+  try
+    FUpdating := True;
+    MuteNotificationsCheck.Checked := ReadBool('Notifications', 'Muted', False);
+  finally
+    FUpdating := False;
+    Free;
+  end;
+end;
+
+procedure TSettingsForm.FormDestroy(Sender: TObject);
+begin
+  { El worker no accede al formulario; su evento no debe sobrevivirlo. }
+  if Assigned(FNetwork) then
+  begin
+    FNetwork.OnTerminate := nil;
+    FNetwork.Terminate;
+    FNetwork := nil;
+  end;
+  FRemoteFiles.Free;
+  FChoiceCodes.Free;
+  FChoiceFiles.Free;
+end;
+
+
+
+procedure TSettingsForm.RefreshStartupState;
+begin
+  FUpdating := True;
+  try
+    StartupCheck.Checked := LaguNETbiStartupTaskExists;
+  finally
+    FUpdating := False;
+  end;
+  ApplyLanguage;
+end;
+
+
+
+
+procedure TSettingsForm.ApplyLanguage;
+begin
+  { RepositoryButton.Caption procede del formulario y LCLTranslator. }
+  if not Assigned(FNetwork) then
+    LanguageSearchButton.Caption := SLoc_Settings_Search;
+
+  FillLanguageChoices;
+
+  if StartupCheck.Checked then
+  begin
+    if LaguNETbiIsElevated then
+      StartupStatus.Caption := SLoc_Settings_StartupActiveAdmin
+    else
+      StartupStatus.Caption := SLoc_Settings_StartupActiveNormal;
+  end
+  else
+  begin
+    if LaguNETbiIsElevated then
+      StartupStatus.Caption := SLoc_Settings_StartupOffAdmin
+    else
+      StartupStatus.Caption := SLoc_Settings_StartupOffNormal;
+  end;
+end;
+
+procedure TSettingsForm.ApplySelectedLanguage;
 var Code: String;
 begin
   Code := LanguageDesiredCode;
@@ -8,7 +210,43 @@ begin
     'LaguNETbi');
   if Assigned(FOnLanguageChanged) then FOnLanguageChanged(Self);
 end;
-procedure TSettingsForm.FillLanguageChoices;var  LocalFiles: TStringList;  I, Index: Integer;  FileName, Code, DisplayName: String;  procedure AddChoice(const ACode, AFile, ADisplay: String);  begin    if FChoiceCodes.IndexOf(ACode) >= 0 then Exit;    FChoiceCodes.Add(ACode);    FChoiceFiles.Add(AFile);    LanguageCombo.Items.Add(ADisplay);  end;begin  LocalFiles := TStringList.Create;  FUpdating := True;  try    LanguageRepoLocalFiles(LocalFiles);    LocalFiles.Sort;    FRemoteFiles.Sort;    LanguageCombo.Items.BeginUpdate;    try      LanguageCombo.Items.Clear;      FChoiceCodes.Clear;      FChoiceFiles.Clear;      AddChoice('auto', '', SLoc_Settings_Automatic);      AddChoice('en', 'LaguNETbi.en.po', 'English');      for I := 0 to LocalFiles.Count + FRemoteFiles.Count - 1 do      begin        if I < LocalFiles.Count then          FileName := LocalFiles[I]        else          FileName := FRemoteFiles[I - LocalFiles.Count];        Code := LanguageRepoCode(FileName);        if (Code = '') or (Code = 'en') then Continue;                DisplayName := Code;
+procedure TSettingsForm.FillLanguageChoices;
+var
+  LocalFiles: TStringList;
+  I, Index: Integer;
+  FileName, Code, DisplayName: String;
+
+  procedure AddChoice(const ACode, AFile, ADisplay: String);
+  begin
+    if FChoiceCodes.IndexOf(ACode) >= 0 then Exit;
+    FChoiceCodes.Add(ACode);
+    FChoiceFiles.Add(AFile);
+    LanguageCombo.Items.Add(ADisplay);
+  end;
+
+begin
+  LocalFiles := TStringList.Create;
+  FUpdating := True;
+  try
+    LanguageRepoLocalFiles(LocalFiles);
+    LocalFiles.Sort;
+    FRemoteFiles.Sort;
+    LanguageCombo.Items.BeginUpdate;
+    try
+      LanguageCombo.Items.Clear;
+      FChoiceCodes.Clear;
+      FChoiceFiles.Clear;
+      AddChoice('auto', '', SLoc_Settings_Automatic);
+      AddChoice('en', 'LaguNETbi.en.po', 'English');
+      for I := 0 to LocalFiles.Count + FRemoteFiles.Count - 1 do
+      begin
+        if I < LocalFiles.Count then
+          FileName := LocalFiles[I]
+        else
+          FileName := FRemoteFiles[I - LocalFiles.Count];
+        Code := LanguageRepoCode(FileName);
+        if (Code = '') or (Code = 'en') then Continue;
+                DisplayName := Code;
         case Code of
           'es': DisplayName := 'Español';
           'eu': DisplayName := 'Euskara';
@@ -16,4 +254,246 @@ procedure TSettingsForm.FillLanguageChoices;var  LocalFiles: TStringList;  I,
           'fr': DisplayName := 'Français';
           'it': DisplayName := 'Italiano';
           'pt': DisplayName := 'Português';
-        end;        AddChoice(Code, FileName, DisplayName);      end;      Index := FChoiceCodes.IndexOf(LanguageSelected);      if Index < 0 then Index := 0;      LanguageCombo.ItemIndex := Index;    finally      LanguageCombo.Items.EndUpdate;    end;  finally    FUpdating := False;    LocalFiles.Free;  end;end;procedure TSettingsForm.StartLanguageNetwork(AAction: TLanguageRepoAction;  const ACode, AFileName: String);begin  if Assigned(FNetwork) then Exit;  FPendingCode := ACode;  LanguageCombo.Enabled := False;  LanguageSearchButton.Enabled := False;  if AAction = lraSearch then    LanguageSearchButton.Caption := SLoc_Settings_Searching  else    LanguageSearchButton.Caption := SLoc_Settings_Downloading;  FNetwork := TLanguageRepoThread.Create(AAction, ACode, AFileName);  FNetwork.OnTerminate := @LanguageNetworkFinished;  FNetwork.Start;end;procedure TSettingsForm.LanguageSearchClick(Sender: TObject);begin  StartLanguageNetwork(lraSearch, '', '');end;procedure TSettingsForm.LanguageNetworkFinished(Sender: TObject);var  RepoAction: TLanguageRepoAction;  ErrorText, Code: String;begin  if not Assigned(FNetwork) or (Sender <> FNetwork) then Exit;  RepoAction := FNetwork.Action;  ErrorText := FNetwork.ErrorText;  Code := FPendingCode;  if (ErrorText = '') and (RepoAction = lraSearch) then    FRemoteFiles.Assign(FNetwork.Files);  FNetwork := nil;  { FreeOnTerminate: el propio hilo se libera al retornar. }  LanguageCombo.Enabled := True;  LanguageSearchButton.Enabled := True;  if ErrorText <> '' then  begin    if RepoAction = lraSearch then      MessageDlg(SLoc_Settings_SearchFailed + LineEnding +        ErrorText, mtWarning, [mbOK], 0)    else      MessageDlg(SLoc_Settings_DownloadFailed + LineEnding +        ErrorText, mtWarning, [mbOK], 0);  end  else if RepoAction = lraSearch then  begin    if FRemoteFiles.Count = 0 then      MessageDlg(SLoc_Settings_NoLanguages, mtInformation, [mbOK], 0);  end  else if not LanguageSetSelection(Code) then    MessageDlg(SLoc_Settings_SaveError, mtError, [mbOK], 0)  else  begin    { Si ya estaba seleccionado y faltaba el archivo, hay que recargar. }    ApplySelectedLanguage;  end;  ApplyLanguage;end;procedure TSettingsForm.LanguageComboChange(Sender: TObject);var  Code, FileName: String;  Index: Integer;begin  if FUpdating or Assigned(FNetwork) then Exit;  Index := LanguageCombo.ItemIndex;  if (Index < 0) or (Index >= FChoiceCodes.Count) then Exit;  Code := FChoiceCodes[Index];  FileName := FChoiceFiles[Index];  if (Code <> 'auto') and (Code <> 'en') and     (LanguageRepoLocalFile(Code) = '') then  begin    StartLanguageNetwork(lraDownload, Code, FileName);    Exit;  end;  if not LanguageSetSelection(Code) then  begin    MessageDlg(SLoc_Settings_SaveError, mtError, [mbOK], 0);    ApplyLanguage;    Exit;  end;  ApplySelectedLanguage;  ApplyLanguage;end;procedure TSettingsForm.StartupCheckClick(Sender: TObject);var  Wanted: Boolean;  ErrorText: String;begin  if FUpdating then    Exit;  Wanted := StartupCheck.Checked;  StartupCheck.Enabled := False;  StartupStatus.Caption := SLoc_Messages_StartupApplying;  Application.ProcessMessages;  try    if not LaguNETbiChangeStartupTask(Wanted, ErrorText) then    begin      MessageDlg(        SLoc_Messages_StartupChangeFailed + LineEnding +        ErrorText,        mtError, [mbOK], 0      );    end;  finally    StartupCheck.Enabled := True;    RefreshStartupState;  end;end;procedure TSettingsForm.ShowBatContentCheckClick(Sender: TObject);begin  if FUpdating then    Exit;  if Assigned(FOnShowBatContentChanged) then    FOnShowBatContentChanged(Self);end;function TSettingsForm.GetShowBatContent: Boolean;begin  Result := ShowBatContentCheck.Checked;end;procedure TSettingsForm.SetShowBatContent(AValue: Boolean);begin  FUpdating := True;  try    ShowBatContentCheck.Checked := AValue;  finally    FUpdating := False;  end;end;procedure TSettingsForm.RepositoryButtonClick(Sender: TObject);begin  ShellExecute(    Handle,    'open',    'https://github.com/aik3n/LaguNETbi',    nil,    nil,    SW_SHOWNORMAL  );end;end.
+        end;
+        AddChoice(Code, FileName, DisplayName);
+      end;
+      Index := FChoiceCodes.IndexOf(LanguageSelected);
+      if Index < 0 then Index := 0;
+      LanguageCombo.ItemIndex := Index;
+    finally
+      LanguageCombo.Items.EndUpdate;
+    end;
+  finally
+    FUpdating := False;
+    LocalFiles.Free;
+  end;
+end;
+
+procedure TSettingsForm.StartLanguageNetwork(AAction: TLanguageRepoAction;
+  const ACode, AFileName: String);
+begin
+  if Assigned(FNetwork) then Exit;
+  FPendingCode := ACode;
+  LanguageCombo.Enabled := False;
+  LanguageSearchButton.Enabled := False;
+  if AAction = lraSearch then
+    LanguageSearchButton.Caption := SLoc_Settings_Searching
+  else
+    LanguageSearchButton.Caption := SLoc_Settings_Downloading;
+  FNetwork := TLanguageRepoThread.Create(AAction, ACode, AFileName);
+  FNetwork.OnTerminate := @LanguageNetworkFinished;
+  FNetwork.Start;
+end;
+
+procedure TSettingsForm.LanguageSearchClick(Sender: TObject);
+begin
+  StartLanguageNetwork(lraSearch, '', '');
+end;
+
+procedure TSettingsForm.LanguageNetworkFinished(Sender: TObject);
+var
+  RepoAction: TLanguageRepoAction;
+  ErrorText, Code: String;
+begin
+  if not Assigned(FNetwork) or (Sender <> FNetwork) then Exit;
+  RepoAction := FNetwork.Action;
+  ErrorText := FNetwork.ErrorText;
+  Code := FPendingCode;
+  if (ErrorText = '') and (RepoAction = lraSearch) then
+    FRemoteFiles.Assign(FNetwork.Files);
+  FNetwork := nil;  { FreeOnTerminate: el propio hilo se libera al retornar. }
+  LanguageCombo.Enabled := True;
+  LanguageSearchButton.Enabled := True;
+  if ErrorText <> '' then
+  begin
+    if RepoAction = lraSearch then
+      MessageDlg(SLoc_Settings_SearchFailed + LineEnding +
+        ErrorText, mtWarning, [mbOK], 0)
+    else
+      MessageDlg(SLoc_Settings_DownloadFailed + LineEnding +
+        ErrorText, mtWarning, [mbOK], 0);
+  end
+  else if RepoAction = lraSearch then
+  begin
+    if FRemoteFiles.Count = 0 then
+      MessageDlg(SLoc_Settings_NoLanguages, mtInformation, [mbOK], 0);
+  end
+  else if not LanguageSetSelection(Code) then
+    MessageDlg(SLoc_Settings_SaveError, mtError, [mbOK], 0)
+  else
+  begin
+    { Si ya estaba seleccionado y faltaba el archivo, hay que recargar. }
+    ApplySelectedLanguage;
+  end;
+  ApplyLanguage;
+end;
+
+procedure TSettingsForm.LanguageComboChange(Sender: TObject);
+var
+  Code, FileName: String;
+  Index: Integer;
+begin
+  if FUpdating or Assigned(FNetwork) then Exit;
+  Index := LanguageCombo.ItemIndex;
+  if (Index < 0) or (Index >= FChoiceCodes.Count) then Exit;
+  Code := FChoiceCodes[Index];
+  FileName := FChoiceFiles[Index];
+  if (Code <> 'auto') and (Code <> 'en') and
+     (LanguageRepoLocalFile(Code) = '') then
+  begin
+    StartLanguageNetwork(lraDownload, Code, FileName);
+    Exit;
+  end;
+  if not LanguageSetSelection(Code) then
+  begin
+    MessageDlg(SLoc_Settings_SaveError, mtError, [mbOK], 0);
+    ApplyLanguage;
+    Exit;
+  end;
+  ApplySelectedLanguage;
+  ApplyLanguage;
+end;
+
+procedure TSettingsForm.StartupCheckClick(Sender: TObject);
+
+var
+
+  Wanted: Boolean;
+
+  ErrorText: String;
+
+begin
+
+  if FUpdating then
+
+    Exit;
+
+
+
+  Wanted := StartupCheck.Checked;
+
+  StartupCheck.Enabled := False;
+
+  StartupStatus.Caption := SLoc_Messages_StartupApplying;
+
+  Application.ProcessMessages;
+
+
+
+  try
+
+    if not LaguNETbiChangeStartupTask(Wanted, ErrorText) then
+
+    begin
+
+      MessageDlg(
+
+        SLoc_Messages_StartupChangeFailed + LineEnding +
+
+        ErrorText,
+
+        mtError, [mbOK], 0
+
+      );
+
+    end;
+
+  finally
+
+    StartupCheck.Enabled := True;
+
+    RefreshStartupState;
+
+  end;
+
+end;
+
+
+
+procedure TSettingsForm.ShowBatContentCheckClick(Sender: TObject);
+
+begin
+
+  if FUpdating then
+
+    Exit;
+
+
+
+  if Assigned(FOnShowBatContentChanged) then
+
+    FOnShowBatContentChanged(Self);
+
+end;
+
+
+
+function TSettingsForm.GetShowBatContent: Boolean;
+
+begin
+
+  Result := ShowBatContentCheck.Checked;
+
+end;
+
+
+
+procedure TSettingsForm.SetShowBatContent(AValue: Boolean);
+
+begin
+
+  FUpdating := True;
+
+  try
+
+    ShowBatContentCheck.Checked := AValue;
+
+  finally
+
+    FUpdating := False;
+
+  end;
+
+end;
+
+
+
+procedure TSettingsForm.MuteNotificationsCheckClick(Sender: TObject);
+var
+  Ini: TIniFile;
+begin
+  if FUpdating then Exit;
+  Ini := TIniFile.Create(IncludeTrailingPathDelimiter(
+    ExtractFilePath(ParamStr(0))) + 'LaguNETbi.ini');
+  try
+    Ini.WriteBool('Notifications', 'Muted', MuteNotificationsCheck.Checked);
+  finally
+    Ini.Free;
+  end;
+end;
+
+procedure TSettingsForm.RepositoryButtonClick(Sender: TObject);
+
+begin
+
+  ShellExecute(
+
+    Handle,
+
+    'open',
+
+    'https://github.com/aik3n/LaguNETbi',
+
+    nil,
+
+    nil,
+
+    SW_SHOWNORMAL
+
+  );
+
+end;
+
+
+
+end.
